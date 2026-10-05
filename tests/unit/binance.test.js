@@ -1,0 +1,124 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { BinanceClient, MemoryStore, cachedSeries, loadMarketData, parseKlines } from '../../public/js/data/binance.js';
+import { buildDataset } from '../../public/js/core/dataset.js';
+import { FakeBinance, fakeFetch } from '../helpers/fake-binance.js';
+
+const HOUR = 3600000;
+const NOW = Date.UTC(2025, 5, 1, 10, 20, 0);
+
+test('parseKlines：只保留已收盤的 K 線、去重、數值化', () => {
+  const rows = [
+    [0, '1', '2', '0.5', '1.5', '10', 3599999],
+    [0, '1', '2', '0.5', '1.5', '10', 3599999], // 重複
+    [3600000, '1.5', '3', '1', '2', '20', 7199999],
+    [7200000, '2', '4', '2', '3', '30', 10799999], // 尚未收盤
+  ];
+  const k = parseKlines(rows, 8000000);
+  assert.deepEqual([...k.t], [0, 3600000]);
+  assert.equal(k.c[1], 2);
+  assert.equal(k.v[1], 20);
+});
+
+test('klines：自動分頁、不含未收盤 K 線', async () => {
+  const fake = new FakeBinance({ nowMs: NOW });
+  const c = new BinanceClient({ fetchImpl: fakeFetch(fake), concurrency: 2 });
+  const start = NOW - 1500 * 5 * 60000 * 2; // 3000 根 5m → 需要 3 頁(1000)
+  const k = await c.klines('spot', 'BTCUSDT', '5m', start, NOW, { now: NOW });
+  assert.ok(k.t.length >= 2990 && k.t.length <= 3001, `${k.t.length}`);
+  for (let i = 1; i < k.t.length; i++) assert.equal(k.t[i] - k.t[i - 1], 300000, '時間必須連續');
+  assert.ok(k.t[k.t.length - 1] + 300000 <= NOW, '最後一根必須已收盤');
+  const pages = fake.requests.filter((r) => r.includes('/klines')).length;
+  assert.ok(pages >= 3);
+});
+
+test('listSymbols：只列 USDT 交易中的交易對、依成交額排序', async () => {
+  const c = new BinanceClient({ fetchImpl: fakeFetch(new FakeBinance({ nowMs: NOW })) });
+  for (const m of ['spot', 'perp']) {
+    const list = await c.listSymbols(m);
+    assert.ok(list.length >= 20);
+    assert.equal(list[0].symbol, 'BTCUSDT');
+    assert.ok(list.every((s) => s.symbol.endsWith('USDT')));
+    assert.ok(!list.some((s) => s.symbol === 'BTCEUR'));
+  }
+});
+
+test('錯誤處理：451 地區限制 → 明確訊息；429 → 重試', async () => {
+  let calls = 0;
+  const f451 = async () => ({ ok: false, status: 451, headers: { get: () => null }, json: async () => ({}) });
+  const c1 = new BinanceClient({ fetchImpl: f451, retries: 0, endpoints: { spot: ['https://a'], perp: ['https://b'] } });
+  await assert.rejects(c1.getJson('perp', '/x'), (e) => e.kind === 'region' && /地區/.test(e.message));
+  const flaky = async () => {
+    calls++;
+    if (calls < 3) return { ok: false, status: 429, headers: { get: () => '0' }, json: async () => ({}) };
+    return { ok: true, status: 200, headers: { get: () => null }, json: async () => ({ ok: 1 }) };
+  };
+  const c2 = new BinanceClient({ fetchImpl: flaky, retries: 4, backoffMs: 1, endpoints: { spot: ['https://a'], perp: [] } });
+  assert.deepEqual(await c2.getJson('spot', '/y'), { ok: 1 });
+  assert.equal(calls, 3);
+});
+
+test('現貨端點失敗時自動換下一個端點', async () => {
+  const f = async (url) => {
+    if (url.startsWith('https://a')) return { ok: false, status: 451, headers: { get: () => null }, json: async () => ({}) };
+    return { ok: true, status: 200, headers: { get: () => null }, json: async () => ({ from: 'b' }) };
+  };
+  const c = new BinanceClient({ fetchImpl: f, retries: 0, endpoints: { spot: ['https://a', 'https://b'], perp: [] } });
+  assert.deepEqual(await c.getJson('spot', '/z'), { from: 'b' });
+});
+
+test('區間快取：第二次只補抓缺的尾巴；往前延伸只補抓頭部', async () => {
+  const store = new MemoryStore();
+  const calls = [];
+  const mk = (a, b) => {
+    calls.push([a, b]);
+    const t = []; for (let x = Math.ceil(a / HOUR) * HOUR; x <= b; x += HOUR) t.push(x);
+    return { t: Float64Array.from(t), o: Float64Array.from(t), h: Float64Array.from(t), l: Float64Array.from(t), c: Float64Array.from(t), v: Float64Array.from(t) };
+  };
+  const keys = ['t', 'o', 'h', 'l', 'c', 'v'];
+  const r1 = await cachedSeries(store, 'k', 10 * HOUR, 20 * HOUR, HOUR, keys, mk);
+  assert.equal(r1.t.length, 11);
+  const r2 = await cachedSeries(store, 'k', 10 * HOUR, 25 * HOUR, HOUR, keys, mk);
+  assert.equal(r2.t.length, 16);
+  assert.deepEqual(calls[1], [20 * HOUR + 1, 25 * HOUR]);
+  const r3 = await cachedSeries(store, 'k', 5 * HOUR, 25 * HOUR, HOUR, keys, mk);
+  assert.equal(r3.t.length, 21);
+  assert.deepEqual(calls[2], [5 * HOUR, 10 * HOUR - 1]);
+  await cachedSeries(store, 'k', 8 * HOUR, 22 * HOUR, HOUR, keys, mk);
+  assert.equal(calls.length, 3, '範圍已涵蓋 → 不再下載');
+  for (let i = 1; i < r3.t.length; i++) assert.equal(r3.t[i] - r3.t[i - 1], HOUR);
+});
+
+test('loadMarketData + buildDataset：永續合約含標記價格與資金費率', async () => {
+  const fake = new FakeBinance({ nowMs: NOW });
+  const client = new BinanceClient({ fetchImpl: fakeFetch(fake) });
+  const prog = [];
+  const d = await loadMarketData(client, new MemoryStore(), {
+    market: 'perp', symbols: ['BTCUSDT', 'ETHUSDT'], baseTf: '1h', tfs: ['4h'], days: 20, now: NOW, onProgress: (p) => prog.push(p),
+  });
+  assert.equal(d.symbols.length, 2);
+  assert.ok(d.symbols[0].mark && d.symbols[0].funding && d.symbols[0].funding.t.length > 40);
+  assert.ok(prog.length > 5 && prog[prog.length - 1].done === prog[prog.length - 1].total);
+  const ds = buildDataset({ market: 'perp', baseTf: '1h', windowStart: d.windowStart, endTime: d.endTime, symbols: d.symbols });
+  assert.equal(ds.symbols.length, 2);
+  assert.ok(ds.symbols[0].mh && !Number.isNaN(ds.symbols[0].ml[ds.n - 1]));
+  assert.equal(ds.windowStartIdx, 300);
+  assert.equal(ds.symbols[0].gaps, 0);
+  // 最後一根 K 線必須在 now 之前收盤
+  assert.ok(ds.t0 + ds.n * ds.baseMs <= NOW);
+  // 標記價格載入失敗 → 退而求其次並提出警告
+  const bad = new FakeBinance({ nowMs: NOW, failMark: true });
+  const d2 = await loadMarketData(new BinanceClient({ fetchImpl: fakeFetch(bad), retries: 0, backoffMs: 1 }), new MemoryStore(), {
+    market: 'perp', symbols: ['BTCUSDT'], baseTf: '1h', tfs: [], days: 10, now: NOW,
+  });
+  assert.equal(d2.symbols[0].mark, null);
+  assert.ok(d2.warnings.some((w) => w.includes('標記價格')));
+});
+
+test('現貨不下載資金費率與標記價格', async () => {
+  const fake = new FakeBinance({ nowMs: NOW });
+  const client = new BinanceClient({ fetchImpl: fakeFetch(fake) });
+  const d = await loadMarketData(client, new MemoryStore(), { market: 'spot', symbols: ['BTCUSDT'], baseTf: '1h', tfs: [], days: 5, now: NOW });
+  assert.equal(d.symbols[0].funding, null);
+  assert.ok(!fake.requests.some((r) => r.includes('fundingRate') || r.includes('markPrice')));
+});

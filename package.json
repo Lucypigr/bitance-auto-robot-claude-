@@ -1,0 +1,19 @@
+{
+  "name": "binance-backtest-platform",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Binance 加密貨幣回測平台（純前端，可部署於 GitHub Pages）",
+  "scripts": {
+    "test": "node --test \"tests/unit/*.test.js\"",
+    "test:e2e": "playwright test",
+    "sync": "node scripts/sync-docs.mjs",
+    "check:sync": "node scripts/sync-docs.mjs --check",
+    "serve": "node scripts/serve.mjs",
+    "test:all": "npm run check:sync && npm test && npm run test:e2e"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.56.1",
+    "lightweight-charts": "5.2.1"
+  }
+}
