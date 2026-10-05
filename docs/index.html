@@ -153,6 +153,12 @@
           </div>
           <label class="check"><input id="s-opp" type="checkbox"> <span data-term="opposite_conditions">允許逆向條件</span></label>
         </details>
+        <details class="adv" id="pool-adv">
+          <summary>自訂搜尋的指標池（<span id="pool-count"></span>）</summary>
+          <p class="muted small"><span data-term="indicator_pool">指標池</span>＝自動搜尋可以挑選的條件。預設包含 RSI、EMA／MACD 交叉、布林通道與全部 9 種 K 線型態；你可以另外勾選其他指標，或只留下想研究的。</p>
+          <div class="row gap wrap"><button type="button" class="btn small" id="pool-default">恢復預設</button><button type="button" class="btn small" id="pool-all">全選</button><button type="button" class="btn small ghost" id="pool-none">全部取消</button></div>
+          <div id="s-pool"></div>
+        </details>
         <div class="row gap">
           <button id="btn-search" class="btn primary grow" type="button">開始搜尋</button>
           <button id="btn-cancel" class="btn danger" type="button" hidden>取消</button>

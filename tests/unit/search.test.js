@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { runSearch, generateCandidates, selectChampions, SEARCH_DEFAULTS, BUDGETS, strategyKey } from '../../public/js/core/search.js';
+import { runSearch, generateCandidates, selectChampions, SEARCH_DEFAULTS, BUDGETS, strategyKey, buildAtomSlots } from '../../public/js/core/search.js';
+import { CONDITIONS } from '../../public/js/core/conditions.js';
 import { splitRanges } from '../../public/js/core/dataset.js';
 import { stabilityScore } from '../../public/js/core/metrics.js';
 import { makeMarket } from '../helpers/market.js';
@@ -162,4 +163,32 @@ test('【無免費午餐】純隨機漫步（無趨勢）上，候選平均報�
   assert.ok(sum / n < 0, `平均報酬應為負（成本拖累），實際 ${(sum / n).toFixed(4)}`);
   assert.ok(Math.abs(wr / n - 0.5) < 0.06, `勝率應接近 50%，實際 ${(wr / n).toFixed(3)}`);
   assert.ok(best < 0.25, `隨機行情不應出現離譜的高報酬：${best}`);
+});
+
+test('預設指標池包含全部 9 種 K 線型態（含十字星），多空方向都可搜尋', () => {
+  const ids = (dir) => new Set(buildAtomSlots(dir, ['1h'], SEARCH_DEFAULTS).flatMap((s) => s.specs.map((x) => x.id)));
+  const long = ids('long'); const short = ids('short');
+  for (const p of ['pat_hammer', 'pat_inverted_hammer', 'pat_bullish_engulfing', 'pat_morning_star', 'pat_doji']) assert.ok(long.has(p), p);
+  for (const p of ['pat_hanging_man', 'pat_shooting_star', 'pat_bearish_engulfing', 'pat_evening_star', 'pat_doji']) assert.ok(short.has(p), p);
+  assert.ok(!long.has('pat_shooting_star'));
+  const all = buildAtomSlots('long', ['1h'], { ...SEARCH_DEFAULTS, allowOpposite: true }).flatMap((s) => s.specs.map((x) => x.id));
+  assert.ok(all.includes('pat_shooting_star'));
+});
+
+test('自訂指標池：候選只會使用池內的條件；全選所有指標也能搜尋且不超過上限', async () => {
+  const { sig, ds } = makeMarket();
+  const r = splitRanges(ds);
+  const pool = ['adx_strong', 'kd_oversold', 'supertrend_flip_up', 'cci_oversold', 'mfi_oversold', 'volume_spike', 'vwap_below', 'pat_doji', 'donchian_break_up', 'keltner_below', 'obv_below', 'atr_high', 'di_bull'];
+  const { candidates } = generateCandidates(sig, { ...CFG, budget: 60, pool, minTrades: 3, direction: 'long' }, r.train);
+  assert.ok(candidates.length > 10);
+  for (const c of candidates) for (const e of c.entry) assert.ok(pool.includes(e.id), `${e.id} 不在池中`);
+  const allIds = Object.keys(CONDITIONS);
+  const res = await runSearch(sig, { ...CFG, budget: 120, pool: allIds, allowOpposite: true, minTrades: 3 }, COSTS);
+  assert.ok(res.candidates.length <= 120 && res.candidates.length > 20);
+  const used = new Set(res.candidates.flatMap((c) => c.strategy.entry.map((e) => e.id)));
+  assert.ok(used.size > 8, `全選時應使用多種指標：${used.size}`);
+  // 池內沒有可用條件 → 不會當機，並給出提示
+  const none = generateCandidates(sig, { ...CFG, pool: ['pat_shooting_star'], direction: 'long', minTrades: 3 }, r.train);
+  assert.equal(none.candidates.length, 0);
+  assert.ok(none.warnings.some((w) => w.includes('指標池')));
 });

@@ -145,3 +145,25 @@ test('合約漲幅榜：依 24h 漲幅排序、快速選取前 N 名，並有「
   await page.locator('#step1 button.ibtn[data-term="gainers"]').hover();
   await expect(page.locator('#info-pop')).toContainText('事後挑出贏家');
 });
+
+test('自訂指標池：預設含全部 9 種 K 線型態，可加選其他指標後搜尋', async ({ page }) => {
+  await page.goto('/index.html');
+  await page.locator('#pool-adv summary').click();
+  for (const id of ['pat_hammer', 'pat_inverted_hammer', 'pat_hanging_man', 'pat_shooting_star', 'pat_bullish_engulfing', 'pat_bearish_engulfing', 'pat_doji', 'pat_morning_star', 'pat_evening_star']) {
+    await expect(page.locator(`input[name="s-pool"][value="${id}"]`)).toBeChecked();
+  }
+  await expect(page.locator('input[name="s-pool"][value="kd_oversold"]')).not.toBeChecked();
+  await page.locator('#pool-all').click();
+  await expect(page.locator('input[name="s-pool"][value="kd_oversold"]')).toBeChecked();
+  await page.locator('#pool-none').click();
+  await page.locator('#btn-search').click();
+  await expect(page.locator('#run-error')).toContainText('指標池');
+  await page.locator('#pool-all').click();
+  await page.selectOption('#days', '90');
+  await page.selectOption('#s-budget', '30');
+  await page.fill('#s-min', '5');
+  await page.locator('#btn-search').click();
+  await expect(page.getByTestId('champ-netReturn')).toBeVisible({ timeout: 90000 });
+  await page.locator('#tab-board').click();
+  await expect(page.getByTestId('board').locator('tbody tr').first()).toBeVisible();
+});

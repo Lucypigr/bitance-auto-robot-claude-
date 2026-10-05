@@ -2,7 +2,7 @@
 // 防過度擬合：候選評分與冠軍選擇「只」使用訓練期(前 70%)結果；
 // 樣本外(後 30%)只在冠軍確定後才計算，用來驗證，絕不回頭影響選擇。
 import { makeRng, shuffleInPlace, lowerBound } from './util.js';
-import { specKey, describeSpec } from './conditions.js';
+import { specKey, describeSpec, CONDITIONS } from './conditions.js';
 import { runStrategy } from './portfolio.js';
 import { stabilityScore } from './metrics.js';
 import { splitRanges } from './dataset.js';
@@ -25,12 +25,26 @@ export const SEARCH_DEFAULTS = {
   entryMode: 'edge',
   trainFrac: 0.7,
   variantsPerSet: 3,
+  pool: null, // 自訂指標池（條件 id 清單）；null = DEFAULT_POOL
 };
 
 const sp = (id, tf, params = {}, within = 1) => ({ id, tf, params, within });
 
-/** 建立某方向可用的「條件原子」，依 (指標家族, 週期) 分成槽位，同槽位不會同時出現 */
+/** 預設指標池：RSI、EMA 交叉、MACD 交叉、布林上下軌，以及全部 9 種 K 線型態 */
+export const DEFAULT_POOL = [
+  'rsi_overbought', 'rsi_oversold', 'ema_golden', 'ema_death', 'macd_golden', 'macd_death', 'bb_above_upper', 'bb_below_lower',
+  'pat_hammer', 'pat_inverted_hammer', 'pat_hanging_man', 'pat_shooting_star', 'pat_bullish_engulfing', 'pat_bearish_engulfing',
+  'pat_doji', 'pat_morning_star', 'pat_evening_star',
+];
+
+/**
+ * 建立某方向可用的「條件原子」，依 (指標家族, 週期) 分成槽位，同槽位不會同時出現。
+ * 指標池可由使用者自訂（cfg.pool = 條件 id 清單）；預設只用偏向該方向的條件與中性條件，
+ * 開啟 allowOpposite 則兩邊條件都可使用。
+ */
 export function buildAtomSlots(dir, tfs, cfg) {
+  const pool = cfg.pool && cfg.pool.length ? cfg.pool : DEFAULT_POOL;
+  const want = dir === 'long' ? 'bull' : 'bear';
   const slots = new Map();
   const add = (family, tf, spec) => {
     const k = `${family}|${tf}`;
@@ -38,21 +52,17 @@ export function buildAtomSlots(dir, tfs, cfg) {
     slots.get(k).push(spec);
   };
   for (const tf of tfs) {
-    const bull = () => {
-      for (const lv of cfg.rsiOversold) add('rsi', tf, sp('rsi_oversold', tf, { level: lv }));
-      add('ema', tf, sp('ema_golden', tf, { fast: 50, slow: 200 }, 3));
-      add('macd', tf, sp('macd_golden', tf, {}, 2));
-      add('bb', tf, sp('bb_below_lower', tf));
-      for (const p of ['hammer', 'inverted_hammer', 'bullish_engulfing', 'morning_star']) add('pattern', tf, sp(`pat_${p}`, tf));
-    };
-    const bear = () => {
-      for (const lv of cfg.rsiOverbought) add('rsi', tf, sp('rsi_overbought', tf, { level: lv }));
-      add('ema', tf, sp('ema_death', tf, { fast: 50, slow: 200 }, 3));
-      add('macd', tf, sp('macd_death', tf, {}, 2));
-      add('bb', tf, sp('bb_above_upper', tf));
-      for (const p of ['hanging_man', 'shooting_star', 'bearish_engulfing', 'evening_star']) add('pattern', tf, sp(`pat_${p}`, tf));
-    };
-    if (cfg.allowOpposite) { bull(); bear(); } else if (dir === 'long') bull(); else bear();
+    for (const id of pool) {
+      const def = CONDITIONS[id];
+      if (!def) continue;
+      if (!cfg.allowOpposite && def.side !== 'neutral' && def.side !== want) continue;
+      const family = def.pattern ? 'pattern' : def.family;
+      if (id === 'rsi_overbought') for (const lv of cfg.rsiOverbought) add(family, tf, sp(id, tf, { level: lv }));
+      else if (id === 'rsi_oversold') for (const lv of cfg.rsiOversold) add(family, tf, sp(id, tf, { level: lv }));
+      else if (id === 'ema_golden' || id === 'ema_death') add(family, tf, sp(id, tf, { fast: 50, slow: 200 }, 3));
+      else if (id === 'macd_golden' || id === 'macd_death') add(family, tf, sp(id, tf, {}, 2));
+      else add(family, tf, sp(id, tf, {}, def.kind === 'event' && !def.pattern ? 2 : 1));
+    }
   }
   return [...slots.entries()].map(([key, specs]) => ({ key, specs }));
 }
@@ -126,6 +136,7 @@ export function generateCandidates(sig, cfgIn, train) {
     if (found.length < want) {
       warnings.push(`${dir === 'long' ? '做多' : '做空'}方向只找到 ${found.length} 組訊號足夠的條件組合（目標 ${want} 組）。建議增加幣種、拉長資料或降低最低交易數。`);
     }
+    if (!slots.length) warnings.push(`${dir === 'long' ? '做多' : '做空'}方向在目前的指標池中沒有可用的條件（可勾選「允許逆向條件」或增加指標）。`);
     setsByDir.set(dir, found);
   }
 
