@@ -50,6 +50,7 @@ npm run check:sync     # 檢查 public/ 與 docs/ 是否一致
 
 1. 修改 `public/` 後執行 `npm run sync`，把結果提交（`docs/` 是發佈資料夾，CI 與單元測試會檢查兩者一致）。
 2. GitHub → Settings → Pages → Source 選 **Deploy from a branch**，Branch 選 `main`、資料夾選 `/docs`。
+   - 若選 `/ (root)`：根目錄的 `index.html` 會自動轉址到 `docs/`，同樣可用。
 3. 所有資源皆為相對路徑，放在子路徑（`https://<user>.github.io/<repo>/`）即可運作。
 
 ## 專案結構
