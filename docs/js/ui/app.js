@@ -1,5 +1,5 @@
 import { initInfo, decorate, term, esc } from './info.js';
-import { BinanceClient, IdbStore, MemoryStore, loadMarketData } from '../data/binance.js';
+import { BinanceClient, IdbStore, MemoryStore, loadMarketData, sortSymbols } from '../data/binance.js';
 import { buildDataset } from '../core/dataset.js';
 import { SignalEngine } from '../core/signals.js';
 import { normalizeSpec, describeSpec } from '../core/conditions.js';
@@ -13,7 +13,7 @@ import { fmtMoney, fmtPct } from './format.js';
 
 const $ = (id) => document.getElementById(id);
 const MAX_SYMBOLS = 15;
-const FALLBACK_SYMBOLS = ['BTC', 'ETH', 'BNB', 'SOL', 'XRP', 'DOGE', 'ADA', 'AVAX', 'LINK', 'DOT', 'LTC', 'TRX', 'ATOM', 'NEAR', 'UNI'].map((b, i) => ({ symbol: `${b}USDT`, base: b, quoteVolume: 1e9 / (i + 1) }));
+const FALLBACK_SYMBOLS = ['BTC', 'ETH', 'BNB', 'SOL', 'XRP', 'DOGE', 'ADA', 'AVAX', 'LINK', 'DOT', 'LTC', 'TRX', 'ATOM', 'NEAR', 'UNI'].map((b, i) => ({ symbol: `${b}USDT`, base: b, quoteVolume: 1e9 / (i + 1), change24h: 0 }));
 const MAX_DAYS = { '5m': 365, '15m': 730, '1h': 1095, '4h': 1095, '1d': 1095 };
 
 const state = {
@@ -112,7 +112,7 @@ async function loadSymbolList(market) {
   const key = `bt.symbols.${market}`;
   try {
     const c = JSON.parse(sessionStorage.getItem(key) || 'null');
-    if (c && Date.now() - c.t < 3600e3) { state.allSymbols[market] = c.list; return c.list; }
+    if (c && Date.now() - c.t < 600e3) { state.allSymbols[market] = c.list; return c.list; }
   } catch { /* ignore */ }
   $('sym-status').textContent = '正在從幣安取得幣種清單…';
   try {
@@ -128,12 +128,16 @@ async function loadSymbolList(market) {
   }
 }
 
+function sortedSymbols() {
+  return sortSymbols(state.allSymbols[state.market] || [], $('sym-sort').value);
+}
+
 function renderSymbols() {
-  const list = state.allSymbols[state.market] || [];
+  const list = sortedSymbols();
   const q = $('sym-search').value.trim().toUpperCase();
   const sel = new Set(state.symbols);
   const filtered = (q ? list.filter((s) => s.symbol.includes(q)) : list).slice(0, 80);
-  $('sym-list').innerHTML = filtered.map((s) => `<button type="button" class="sym-item" role="option" aria-selected="${sel.has(s.symbol)}" data-sym="${s.symbol}"><span>${sel.has(s.symbol) ? '✓ ' : ''}${esc(s.base || symOf(s.symbol))}<span class="muted">/USDT</span></span><span class="vol">${s.quoteVolume ? '24h 成交 ' + (s.quoteVolume / 1e6).toFixed(0) + 'M' : ''}</span></button>`).join('') || '<div class="muted small" style="padding:8px">找不到符合的幣種</div>';
+  $('sym-list').innerHTML = filtered.map((s) => `<button type="button" class="sym-item" role="option" aria-selected="${sel.has(s.symbol)}" data-sym="${s.symbol}"><span>${sel.has(s.symbol) ? '✓ ' : ''}${esc(s.base || symOf(s.symbol))}<span class="muted">/USDT</span></span><span class="vol">${s.change24h !== undefined ? `<b class="${s.change24h >= 0 ? 'pos' : 'neg'}">${s.change24h >= 0 ? '+' : ''}${s.change24h.toFixed(1)}%</b> ` : ''}${s.quoteVolume ? '成交 ' + (s.quoteVolume / 1e6).toFixed(0) + 'M' : ''}</span></button>`).join('') || '<div class="muted small" style="padding:8px">找不到符合的幣種</div>';
   $('sym-selected').innerHTML = state.symbols.map((s) => `<span class="chip">${esc(symOf(s))}<button type="button" data-rm="${s}" aria-label="移除 ${esc(s)}">✕</button></span>`).join('');
   $('sym-count').textContent = `（已選 ${state.symbols.length}／${MAX_SYMBOLS}）`;
 }
@@ -501,12 +505,12 @@ function renderTrades() {
 function bind() {
   document.querySelectorAll('[data-market]').forEach((b) => b.addEventListener('click', () => setMarket(b.dataset.market)));
   $('sym-search').addEventListener('input', renderSymbols);
+  $('sym-sort').addEventListener('change', renderSymbols);
   $('sym-list').addEventListener('click', (e) => { const b = e.target.closest('[data-sym]'); if (b) toggleSymbol(b.dataset.sym); });
   $('sym-selected').addEventListener('click', (e) => { const b = e.target.closest('[data-rm]'); if (b) toggleSymbol(b.dataset.rm); });
   document.querySelectorAll('[data-preset]').forEach((b) => b.addEventListener('click', () => {
     const n = Number(b.dataset.preset);
-    const list = state.allSymbols[state.market] || [];
-    state.symbols = list.slice(0, n).map((s) => s.symbol);
+    state.symbols = sortedSymbols().slice(0, n).map((s) => s.symbol);
     renderSymbols(); updateDataWarn(); saveSettings();
   }));
   $('base-tf').addEventListener('change', (e) => setBaseTf(e.target.value));

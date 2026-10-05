@@ -122,3 +122,20 @@ test('現貨不下載資金費率與標記價格', async () => {
   assert.equal(d.symbols[0].funding, null);
   assert.ok(!fake.requests.some((r) => r.includes('fundingRate') || r.includes('markPrice')));
 });
+
+test('漲幅榜：listSymbols 帶出 24h 漲跌幅，sortSymbols 可依成交額／漲幅／跌幅排序', async () => {
+  const { sortSymbols } = await import('../../public/js/data/binance.js');
+  const c = new BinanceClient({ fetchImpl: fakeFetch(new FakeBinance({ nowMs: NOW })) });
+  const list = await c.listSymbols('perp');
+  assert.ok(list.every((s) => typeof s.change24h === 'number'));
+  assert.ok(list.some((s) => s.change24h > 0) && list.some((s) => s.change24h < 0));
+  const gain = sortSymbols(list, 'gain');
+  for (let i = 1; i < gain.length; i++) assert.ok(gain[i - 1].change24h >= gain[i].change24h);
+  const loss = sortSymbols(list, 'loss');
+  for (let i = 1; i < loss.length; i++) assert.ok(loss[i - 1].change24h <= loss[i].change24h);
+  const vol = sortSymbols(list, 'volume');
+  assert.equal(vol[0].symbol, 'BTCUSDT');
+  assert.equal(list.length, gain.length, '排序不可增減項目');
+  // 舊快取沒有 change24h 欄位時不應壞掉
+  assert.equal(sortSymbols([{ symbol: 'A', quoteVolume: 1 }, { symbol: 'B', quoteVolume: 2 }], 'gain')[0].symbol, 'B');
+});

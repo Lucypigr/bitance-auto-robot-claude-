@@ -123,3 +123,25 @@ test('GitHub Pages 發佈資料夾 docs/ 可正常執行', async ({ page }) => {
   await page.locator('#btn-manual').click();
   await expect(page.getByTestId('compare')).toBeVisible({ timeout: 60000 });
 });
+
+test('合約漲幅榜：依 24h 漲幅排序、快速選取前 N 名，並有「事後挑贏家」提醒', async ({ page }) => {
+  await page.goto('/index.html');
+  await expect(page.locator('#sym-list .sym-item').first()).toBeVisible();
+  await page.selectOption('#sym-sort', 'gain');
+  const pcts = await page.locator('#sym-list .sym-item .vol b').allTextContents();
+  const nums = pcts.map((t) => parseFloat(t));
+  expect(nums.length).toBeGreaterThan(5);
+  for (let i = 1; i < nums.length; i++) expect(nums[i - 1]).toBeGreaterThanOrEqual(nums[i]);
+  const top3 = (await page.locator('#sym-list .sym-item').evaluateAll((els) => els.slice(0, 3).map((e) => e.dataset.sym)));
+  await page.locator('[data-preset="3"]').click();
+  await expect(page.locator('#sym-count')).toContainText('已選 3');
+  const chosen = await page.locator('#sym-selected .chip').allTextContents();
+  for (const s of top3) expect(chosen.join(' ')).toContain(s.replace('USDT', ''));
+  // 跌幅榜相反
+  await page.selectOption('#sym-sort', 'loss');
+  const lnums = (await page.locator('#sym-list .sym-item .vol b').allTextContents()).map((t) => parseFloat(t));
+  for (let i = 1; i < lnums.length; i++) expect(lnums[i - 1]).toBeLessThanOrEqual(lnums[i]);
+  // ⓘ 說明
+  await page.locator('#step1 button.ibtn[data-term="gainers"]').hover();
+  await expect(page.locator('#info-pop')).toContainText('事後挑出贏家');
+});

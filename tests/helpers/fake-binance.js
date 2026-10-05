@@ -55,7 +55,7 @@ export class FakeBinance {
         ? { symbol: s, status: 'TRADING', contractType: 'PERPETUAL', quoteAsset: 'USDT', baseAsset: s.replace('USDT', ''), onboardDate: ANCHOR }
         : { symbol: s, status: 'TRADING', isSpotTradingAllowed: true, quoteAsset: 'USDT', baseAsset: s.replace('USDT', '') }).concat([{ symbol: 'BTCEUR', status: 'TRADING', isSpotTradingAllowed: true, contractType: 'PERPETUAL', quoteAsset: 'EUR', baseAsset: 'BTC' }]) });
     }
-    if (p.endsWith('/ticker/24hr')) return ok(syms.map((s, i) => ({ symbol: s, quoteVolume: String(1e9 / (i + 1)) })));
+    if (p.endsWith('/ticker/24hr')) return ok(syms.map((s, i) => ({ symbol: s, quoteVolume: String(1e9 / (i + 1)), priceChangePercent: String(((i * 7) % 20) - 8 + i / 100) })));
     if (p.endsWith('/klines') || p.endsWith('/markPriceKlines')) {
       const sym = q.get('symbol');
       if (!syms.includes(sym)) return { status: 400, body: { code: -1121, msg: 'Invalid symbol.' } };
