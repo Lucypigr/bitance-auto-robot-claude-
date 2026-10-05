@@ -192,3 +192,14 @@ test('自訂指標池：候選只會使用池內的條件；全選所有指標�
   assert.equal(none.candidates.length, 0);
   assert.ok(none.warnings.some((w) => w.includes('指標池')));
 });
+
+test('USDT 模式搜尋：候選帶有單位與每筆投入，描述清楚', async () => {
+  const { sig } = makeMarket();
+  const r = await runSearch(sig, { ...CFG, budget: 30, minTrades: 3, unit: 'usdt', posUsdt: 6, slList: [3], tpList: [2], levList: [1] }, COSTS);
+  assert.ok(r.candidates.length > 0);
+  for (const c of r.candidates) {
+    assert.equal(c.strategy.unit, 'usdt'); assert.equal(c.strategy.posUsdt, 6);
+    assert.match(c.desc, /每筆 6 USDT/); assert.match(c.desc, /停損 3 USDT/); assert.match(c.desc, /停利 2 USDT/);
+    for (const t of []) void t;
+  }
+});

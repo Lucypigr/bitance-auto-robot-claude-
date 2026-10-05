@@ -25,6 +25,8 @@ export const SEARCH_DEFAULTS = {
   entryMode: 'edge',
   trainFrac: 0.7,
   variantsPerSet: 3,
+  unit: 'pct', // 停損停利單位：pct＝價格 %；usdt＝損益 USDT 金額（需搭配 posUsdt）
+  posUsdt: 0, // 每筆固定投入的保證金（USDT），0＝用資金比例
   pool: null, // 自訂指標池（條件 id 清單）；null = DEFAULT_POOL
 };
 
@@ -68,17 +70,19 @@ export function buildAtomSlots(dir, tfs, cfg) {
 }
 
 export function strategyKey(st) {
-  return `${st.dir}|${st.entry.map(specKey).sort().join('&')}|sl${st.sl}|tp${st.tp}|x${st.lev}`;
+  return `${st.dir}|${st.entry.map(specKey).sort().join('&')}|sl${st.sl}|tp${st.tp}|x${st.lev}|${st.unit || 'pct'}|${st.posUsdt || 0}`;
 }
 
 export function describeStrategy(st) {
   const dir = st.dir === 'long' ? '做多' : '做空';
   const cond = st.entry.map(describeSpec).join(' 且 ');
   const exits = [];
-  if (st.sl) exits.push(`停損 ${st.sl}%`);
-  if (st.tp) exits.push(`停利 ${st.tp}%`);
+  const u = st.unit === 'usdt' ? ' USDT' : '%';
+  if (st.sl) exits.push(`停損 ${st.sl}${u}`);
+  if (st.tp) exits.push(`停利 ${st.tp}${u}`);
   if (st.trail) exits.push(`移動停損 ${st.trail}%`);
-  return `${dir}｜${cond}｜${exits.join('、') || '無停損停利'}｜${st.lev}×`;
+  const size = st.posUsdt ? `每筆 ${st.posUsdt} USDT｜` : '';
+  return `${dir}｜${cond}｜${size}${exits.join('、') || '無停損停利'}｜${st.lev}×`;
 }
 
 /** 訓練期內可能的進場訊號數（用來預先過濾「幾乎不會觸發」的組合；只看訊號頻率，不看報酬） */
@@ -153,7 +157,7 @@ export function generateCandidates(sig, cfgIn, train) {
       for (let i = 0; i < sets.length && candidates.length < budget; i++) {
         const specs = sets[i];
         const combo = combos[(i * cfg.variantsPerSet + round + ci) % combos.length];
-        const st = { dir, entry: specs, exit: [], entryMode: cfg.entryMode, sl: combo.sl, tp: combo.tp, trail: 0, lev: combo.lev };
+        const st = { dir, entry: specs, exit: [], entryMode: cfg.entryMode, sl: combo.sl, tp: combo.tp, trail: 0, lev: combo.lev, unit: cfg.unit || 'pct', posUsdt: cfg.posUsdt || 0 };
         const key = strategyKey(st);
         if (seenKeys.has(key)) continue;
         seenKeys.add(key);
