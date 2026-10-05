@@ -11,6 +11,12 @@ const PATHS = {
   perp: { info: '/fapi/v1/exchangeInfo', ticker: '/fapi/v1/ticker/24hr', klines: '/fapi/v1/klines', mark: '/fapi/v1/markPriceKlines', funding: '/fapi/v1/fundingRate', limit: 1500 },
 };
 
+/** 幣種排序：volume＝24h 成交額、gain＝24h 漲幅由高到低、loss＝24h 跌幅由大到小 */
+export function sortSymbols(list, mode = 'volume') {
+  const key = mode === 'gain' ? (s) => -(s.change24h || 0) : mode === 'loss' ? (s) => s.change24h || 0 : (s) => -s.quoteVolume;
+  return list.slice().sort((a, b) => key(a) - key(b) || b.quoteVolume - a.quoteVolume);
+}
+
 export class BinanceError extends Error {
   constructor(message, kind = 'error', status = 0) {
     super(message);
@@ -97,13 +103,14 @@ export class BinanceClient {
     const P = PATHS[market];
     const [info, tick] = await Promise.all([this.getJson(market, P.info, signal), this.getJson(market, P.ticker, signal)]);
     const vol = new Map();
-    for (const t of tick) vol.set(t.symbol, Number(t.quoteVolume) || 0);
+    const chg = new Map();
+    for (const t of tick) { vol.set(t.symbol, Number(t.quoteVolume) || 0); chg.set(t.symbol, Number(t.priceChangePercent) || 0); }
     const out = [];
     for (const s of info.symbols) {
       if (s.quoteAsset !== 'USDT' || s.status !== 'TRADING') continue;
       if (market === 'spot' && s.isSpotTradingAllowed === false) continue;
       if (market === 'perp' && s.contractType !== 'PERPETUAL') continue;
-      out.push({ symbol: s.symbol, base: s.baseAsset, quoteVolume: vol.get(s.symbol) || 0, onboardDate: s.onboardDate || 0 });
+      out.push({ symbol: s.symbol, base: s.baseAsset, quoteVolume: vol.get(s.symbol) || 0, change24h: chg.get(s.symbol) || 0, onboardDate: s.onboardDate || 0 });
     }
     out.sort((a, b) => b.quoteVolume - a.quoteVolume);
     return out;

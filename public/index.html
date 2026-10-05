@@ -59,10 +59,16 @@
       <div class="field">
         <div class="label">幣種 <span class="muted" id="sym-count">（已選 0／15）</span></div>
         <div id="sym-selected" class="chips" aria-live="polite"></div>
+        <label class="row gap small" for="sym-sort"><span class="muted"><span data-term="gainers">排序</span></span>
+          <select id="sym-sort" aria-label="幣種排序">
+            <option value="volume" selected>24h 成交額</option>
+            <option value="gain">24h 漲幅榜（高→低）</option>
+            <option value="loss">24h 跌幅榜（大→小）</option>
+          </select></label>
         <input id="sym-search" type="search" placeholder="搜尋幣種，例如 BTC、SOL…" autocomplete="off" aria-label="搜尋幣種">
         <div id="sym-list" class="sym-list" role="listbox" aria-label="幣種清單"></div>
         <div class="row gap wrap">
-          <button type="button" class="btn small" data-preset="3">成交額前 3</button>
+          <button type="button" class="btn small" data-preset="3">依排序前 3</button>
           <button type="button" class="btn small" data-preset="5">前 5</button>
           <button type="button" class="btn small" data-preset="10">前 10</button>
           <button type="button" class="btn small" data-preset="15">前 15</button>
