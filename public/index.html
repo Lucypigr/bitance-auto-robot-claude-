@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>幣安回測平台</title>
+  <meta name="description" content="用 Binance 真實歷史 K 線回測現貨與永續合約策略，支援跨週期條件、自動搜尋與樣本外驗證。純瀏覽器運作，免註冊。">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232962ff'/%3E%3Cpath d='M7 22l6-8 5 5 7-10' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="logo" aria-hidden="true">◈</span>
+    <h1>幣安回測平台</h1>
+    <span class="tag">非專業投資者也能用</span>
+  </div>
+  <div class="top-actions">
+    <label class="mini-select" title="漲跌顏色">
+      <span class="sr-only">漲跌顏色</span>
+      <select id="color-scheme" aria-label="漲跌顏色">
+        <option value="intl">綠漲紅跌（國際）</option>
+        <option value="tw">紅漲綠跌（台股）</option>
+      </select>
+    </label>
+    <button id="btn-theme" class="btn ghost" type="button" aria-label="切換深色／淺色">🌓</button>
+  </div>
+</header>
+
+<div class="disclaimer" role="note">
+  ⚠ <b>回測不代表未來績效。</b>本工具僅供學習與研究，不是投資建議；加密貨幣波動極大，槓桿可能讓你損失全部本金。
+</div>
+
+<main class="layout">
+  <aside class="side" id="side">
+    <section class="card" id="guide">
+      <h2>三步驟開始</h2>
+      <ol class="steps">
+        <li><b>選市場與幣種</b>（最多 15 個）</li>
+        <li><b>設定策略</b>：自己組條件，或讓系統「自動搜尋」</li>
+        <li><b>先看「樣本外」</b>結果：它是挑選時完全沒看過的後 30% 資料</li>
+      </ol>
+      <button id="btn-demo" class="btn primary block" type="button">🚀 一鍵示範：BTC＋ETH 自動搜尋</button>
+      <p class="hint">所有名詞旁的 <span class="info-sample">ⓘ</span> 都可以點（或滑鼠移上去）看白話說明與常見誤解。</p>
+    </section>
+
+    <section class="card" id="step1">
+      <h2><span class="num">1</span> 市場與資料</h2>
+
+      <div class="field">
+        <div class="label">市場</div>
+        <div class="seg" role="radiogroup" aria-label="市場">
+          <button type="button" class="seg-btn" data-market="perp" role="radio" aria-checked="true">USDT 永續合約</button>
+          <button type="button" class="seg-btn" data-market="spot" role="radio" aria-checked="false">現貨</button>
+        </div>
+        <div class="muted small"><span data-term="perp">永續合約</span>可做多做空與槓桿；<span data-term="spot">現貨</span>只能做多。</div>
+      </div>
+
+      <div class="field">
+        <div class="label">幣種 <span class="muted" id="sym-count">（已選 0／15）</span></div>
+        <div id="sym-selected" class="chips" aria-live="polite"></div>
+        <input id="sym-search" type="search" placeholder="搜尋幣種，例如 BTC、SOL…" autocomplete="off" aria-label="搜尋幣種">
+        <div id="sym-list" class="sym-list" role="listbox" aria-label="幣種清單"></div>
+        <div class="row gap wrap">
+          <button type="button" class="btn small" data-preset="3">成交額前 3</button>
+          <button type="button" class="btn small" data-preset="5">前 5</button>
+          <button type="button" class="btn small" data-preset="10">前 10</button>
+          <button type="button" class="btn small" data-preset="15">前 15</button>
+          <button type="button" class="btn small ghost" data-preset="0">清空</button>
+        </div>
+        <div id="sym-status" class="muted small"></div>
+      </div>
+
+      <div class="grid2">
+        <div class="field">
+          <label class="label" for="base-tf"><span data-term="execution_tf">執行週期</span></label>
+          <select id="base-tf">
+            <option value="5m">5 分鐘</option>
+            <option value="15m">15 分鐘</option>
+            <option value="1h" selected>1 小時</option>
+            <option value="4h">4 小時</option>
+            <option value="1d">1 天</option>
+          </select>
+        </div>
+        <div class="field">
+          <label class="label" for="days">回測資料長度</label>
+          <select id="days">
+            <option value="30">近 30 天</option>
+            <option value="90">近 90 天</option>
+            <option value="180" selected>近 180 天</option>
+            <option value="365">近 1 年</option>
+            <option value="730">近 2 年</option>
+            <option value="1095">近 3 年</option>
+          </select>
+        </div>
+      </div>
+      <div id="data-warn" class="note warn" hidden></div>
+
+      <details class="adv">
+        <summary>進階：資金與成本設定</summary>
+        <div class="grid2">
+          <div class="field"><label class="label" for="capital">初始資金（USDT）</label><input id="capital" type="number" min="100" step="100" value="10000"></div>
+          <div class="field"><label class="label" for="posPct"><span data-term="position_pct">每筆投入比例</span>（%）</label><input id="posPct" type="number" min="1" max="100" step="1" value="100"></div>
+          <div class="field"><label class="label" for="feePct"><span data-term="fee">手續費</span>（單邊 %）</label><input id="feePct" type="number" min="0" max="1" step="0.005" value="0.05"></div>
+          <div class="field"><label class="label" for="slipPct"><span data-term="slippage">滑價</span>（單邊 %）</label><input id="slipPct" type="number" min="0" max="2" step="0.01" value="0.05"></div>
+          <div class="field" id="mmr-field"><label class="label" for="mmrPct"><span data-term="maintenance_margin">維持保證金率</span>（%）</label><input id="mmrPct" type="number" min="0.1" max="5" step="0.1" value="0.5"></div>
+          <div class="field" id="mark-field"><label class="check"><input id="useMark" type="checkbox" checked> 用<span data-term="mark_price">標記價格</span>判斷清算</label></div>
+        </div>
+        <div class="muted small"><span data-term="capital_split">資金會平均分配</span>給每個幣種。預設手續費：永續 0.05%、現貨 0.1%（切換市場時自動調整）。</div>
+      </details>
+      <div id="load-progress" class="progress" hidden><div class="bar"></div><span class="ptext"></span></div>
+      <div id="data-info" class="muted small"></div>
+    </section>
+
+    <section class="card" id="step2">
+      <h2><span class="num">2</span> 策略</h2>
+      <div class="tabs" role="tablist">
+        <button type="button" class="tab active" role="tab" id="tab-search" aria-selected="true" data-tab="search">🔎 自動搜尋最佳組合</button>
+        <button type="button" class="tab" role="tab" id="tab-manual" aria-selected="false" data-tab="manual">🛠 手動設定策略</button>
+      </div>
+
+      <!-- 自動搜尋 -->
+      <div id="pane-search" class="pane">
+        <p class="muted small">系統會在<b>前 70% 的資料（<span data-term="training">訓練期</span>）</b>測試大量「條件＋停損停利＋槓桿」組合並挑出三位冠軍，再用<b>最後 30%（<span data-term="oos">樣本外</span>）</b>驗收。</p>
+        <div class="grid2">
+          <div class="field"><label class="label" for="s-dir">方向</label>
+            <select id="s-dir"><option value="both">多空都搜尋</option><option value="long">只做多</option><option value="short">只做空</option></select></div>
+          <div class="field"><label class="label" for="s-maxc">最多 AND 條件數</label>
+            <select id="s-maxc"><option value="2">最多 2 個</option><option value="3" selected>最多 3 個</option><option value="4">最多 4 個</option></select></div>
+          <div class="field"><label class="label" for="s-budget"><span data-term="candidates">候選數上限</span></label>
+            <select id="s-budget"><option>30</option><option>60</option><option selected>120</option><option>180</option><option>300</option></select></div>
+          <div class="field"><label class="label" for="s-min"><span data-term="min_trades">最低交易數</span></label>
+            <input id="s-min" type="number" min="1" max="500" value="20"></div>
+        </div>
+        <div class="field"><div class="label"><span data-term="cross_tf">條件使用的週期</span>（不能小於執行週期）</div><div id="s-tfs" class="checks"></div></div>
+        <details class="adv">
+          <summary>進階：停損、停利、槓桿的搜尋範圍</summary>
+          <div class="field"><div class="label"><span data-term="stoploss">停損 %</span></div><div class="checks" id="s-sl"></div></div>
+          <div class="field"><div class="label"><span data-term="takeprofit">停利 %</span></div><div class="checks" id="s-tp"></div></div>
+          <div class="field" id="s-lev-field"><div class="label"><span data-term="leverage">槓桿</span>（只是抽樣維度，不會讓候選數變多）</div><div class="checks" id="s-lev"></div></div>
+          <div class="field"><div class="label">RSI 門檻</div>
+            <div class="muted small"><span data-term="rsi_overbought">超買</span> 70／75／80　<span data-term="rsi_oversold">超賣</span> 30／25／20（固定）</div></div>
+          <div class="grid2">
+            <div class="field"><label class="label" for="s-seed"><span data-term="seed">亂數種子</span></label><input id="s-seed" type="number" value="20240601"></div>
+            <div class="field"><label class="label" for="s-entrymode"><span data-term="entry_mode">進場方式</span></label>
+              <select id="s-entrymode"><option value="edge" selected>條件剛成立才進場</option><option value="level">成立期間都可進場</option></select></div>
+          </div>
+          <label class="check"><input id="s-opp" type="checkbox"> <span data-term="opposite_conditions">允許逆向條件</span></label>
+        </details>
+        <div class="row gap">
+          <button id="btn-search" class="btn primary grow" type="button">開始搜尋</button>
+          <button id="btn-cancel" class="btn danger" type="button" hidden>取消</button>
+        </div>
+        <div id="search-progress" class="progress" hidden><div class="bar"></div><span class="ptext"></span></div>
+      </div>
+
+      <!-- 手動策略 -->
+      <div id="pane-manual" class="pane" hidden>
+        <div class="field">
+          <label class="label" for="m-template">新手範本</label>
+          <select id="m-template"><option value="">— 選一個範本快速開始 —</option></select>
+        </div>
+        <div class="field">
+          <div class="label">方向</div>
+          <div class="seg" role="radiogroup" aria-label="方向">
+            <button type="button" class="seg-btn" data-dir="long" role="radio" aria-checked="false">做多（看漲）</button>
+            <button type="button" class="seg-btn" data-dir="short" role="radio" aria-checked="true">做空（看跌）</button>
+          </div>
+        </div>
+        <div class="field">
+          <div class="label">進場條件 <span class="muted">（全部成立才進場，AND）</span></div>
+          <div id="m-entry"></div>
+          <button type="button" class="btn small" id="m-add-entry">＋ 新增條件</button>
+          <div id="m-summary" class="note info"></div>
+        </div>
+        <div class="grid2">
+          <div class="field"><label class="label" for="m-sl"><span data-term="stoploss">停損</span>（%，0=不設）</label><input id="m-sl" type="number" min="0" max="50" step="0.5" value="3"></div>
+          <div class="field"><label class="label" for="m-tp"><span data-term="takeprofit">停利</span>（%，0=不設）</label><input id="m-tp" type="number" min="0" max="500" step="0.5" value="5"></div>
+          <div class="field"><label class="label" for="m-trail"><span data-term="trailing_stop">移動停損</span>（%，0=不設）</label><input id="m-trail" type="number" min="0" max="50" step="0.5" value="0"></div>
+          <div class="field"><label class="label" for="m-lev"><span data-term="leverage">槓桿</span>（1～10 倍）</label>
+            <input id="m-lev" type="range" min="1" max="10" step="1" value="1"><output id="m-lev-out">1×</output></div>
+          <div class="field"><label class="label" for="m-maxbars">最長持倉（根 K 線，0=不限）</label><input id="m-maxbars" type="number" min="0" step="1" value="0"></div>
+          <div class="field"><label class="label" for="m-entrymode"><span data-term="entry_mode">進場方式</span></label>
+            <select id="m-entrymode"><option value="edge" selected>條件剛成立才進場</option><option value="level">成立期間都可進場</option></select></div>
+        </div>
+        <details class="adv">
+          <summary>進階：出場條件（任一成立就在下一根開盤出場）</summary>
+          <div id="m-exit"></div>
+          <button type="button" class="btn small" id="m-add-exit">＋ 新增出場條件</button>
+        </details>
+        <button id="btn-manual" class="btn primary block" type="button">開始回測</button>
+      </div>
+      <div id="run-error" class="note bad" role="alert" hidden></div>
+    </section>
+  </aside>
+
+  <section class="main" id="main">
+    <div id="result-empty" class="card empty">
+      <h2>回測結果會顯示在這裡</h2>
+      <p>先在左側選好幣種，按下「開始搜尋」或「開始回測」。第一次會從幣安下載歷史 K 線（之後會暫存在瀏覽器，更快）。</p>
+      <div id="preview-chart" class="chart-box" hidden></div>
+    </div>
+
+    <div id="result-body" hidden>
+      <div id="r-title" class="card result-head"></div>
+      <div id="r-champions" class="champions" hidden></div>
+      <div id="r-verdict" class="card"></div>
+      <div id="r-compare" class="card"></div>
+      <div class="card charts">
+        <div class="tabs" role="tablist" id="chart-tabs">
+          <button type="button" class="tab active" role="tab" data-ctab="candles" aria-selected="true">K 線圖</button>
+          <button type="button" class="tab" role="tab" data-ctab="equity" aria-selected="false">淨值曲線</button>
+          <button type="button" class="tab" role="tab" data-ctab="drawdown" aria-selected="false">回撤</button>
+          <button type="button" class="tab" role="tab" data-ctab="monthly" aria-selected="false">每月報酬</button>
+          <button type="button" class="tab" role="tab" data-ctab="trades" aria-selected="false">逐筆交易</button>
+          <button type="button" class="tab" role="tab" data-ctab="board" aria-selected="false" id="tab-board" hidden>候選排行榜</button>
+        </div>
+        <div id="ctab-candles" class="ctab">
+          <div class="chart-tools">
+            <label>幣種 <select id="c-symbol"></select></label>
+            <label class="check"><input type="checkbox" id="ov-ema" checked> EMA50／200</label>
+            <label class="check"><input type="checkbox" id="ov-bb"> 布林通道</label>
+            <label class="check"><input type="checkbox" id="ov-sig" checked> 技術訊號</label>
+            <label class="check"><input type="checkbox" id="ov-trade" checked> 進出場</label>
+          </div>
+          <div id="candle-chart" class="chart-box tall"></div>
+          <div class="muted small" id="candle-legend"></div>
+        </div>
+        <div id="ctab-equity" class="ctab" hidden><div id="equity-chart" class="chart-box"></div><div class="muted small" id="equity-legend"></div></div>
+        <div id="ctab-drawdown" class="ctab" hidden><div id="dd-chart" class="chart-box"></div></div>
+        <div id="ctab-monthly" class="ctab" hidden><div id="monthly"></div></div>
+        <div id="ctab-trades" class="ctab" hidden><div id="trades"></div></div>
+        <div id="ctab-board" class="ctab" hidden><div id="board"></div></div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="foot">
+  <p>資料來源：Binance 公開行情 API（K 線、標記價格、資金費率）。圖表：<a href="https://www.tradingview.com/" target="_blank" rel="noopener">TradingView Lightweight Charts™</a>（Apache-2.0）。本站與 Binance、TradingView 無隸屬關係。</p>
+  <p>所有計算皆在你的瀏覽器內完成，不會上傳任何資料。</p>
+</footer>
+
+<script type="module" src="js/ui/app.js"></script>
+</body>
+</html>

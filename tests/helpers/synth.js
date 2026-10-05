@@ -23,9 +23,11 @@ export function makePath5m(seed, count, startPrice = 100, vol = 0.0025, drift = 
   let p = startPrice;
   // 緩慢變動的波動度與趨勢，讓行情有「段落感」
   let regime = 0;
+  const kappa = regimeScale === 0 ? 0 : 0.0004; // 輕微均值回歸，避免合成價格漂到 0 或爆衝
+  const p0 = startPrice;
   for (let i = 0; i < count; i++) {
     if (i % 400 === 0) regime = gauss() * vol * regimeScale;
-    const r = drift + regime + gauss() * vol;
+    const r = drift + regime + gauss() * vol - kappa * Math.log(p / p0);
     const op = p;
     const cl = Math.max(0.0001, p * (1 + r));
     const wick = Math.abs(gauss()) * vol * 0.6;
