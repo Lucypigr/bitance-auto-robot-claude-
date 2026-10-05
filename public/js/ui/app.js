@@ -2,8 +2,8 @@ import { initInfo, decorate, term, esc } from './info.js';
 import { BinanceClient, IdbStore, MemoryStore, loadMarketData, sortSymbols } from '../data/binance.js';
 import { buildDataset } from '../core/dataset.js';
 import { SignalEngine } from '../core/signals.js';
-import { normalizeSpec, describeSpec } from '../core/conditions.js';
-import { describeStrategy } from '../core/search.js';
+import { normalizeSpec, describeSpec, conditionGroups, CONDITIONS } from '../core/conditions.js';
+import { describeStrategy, DEFAULT_POOL } from '../core/search.js';
 import { TIMEFRAMES, TF_LABEL, TF_MS, DAY, tfIndex } from '../core/util.js';
 import { ComputeClient } from './worker-client.js';
 import { refreshChartTheme, destroyAll, candleChart, toChartTime } from './charts.js';
@@ -25,7 +25,7 @@ const state = {
   useMark: true,
   tab: 'search',
   manual: { dir: 'short', entry: [], exit: [], sl: 3, tp: 5, trail: 0, lev: 1, maxBars: 0, entryMode: 'edge' },
-  search: { direction: 'both', maxConditions: 3, budget: 120, tfs: [], minTrades: 20, sl: [1, 2, 3, 5], tp: [1, 2, 3, 5, 10], lev: [1, 2, 3, 5, 10], seed: 20240601, entryMode: 'edge', allowOpposite: false },
+  search: { direction: 'both', maxConditions: 3, budget: 120, tfs: [], minTrades: 20, sl: [1, 2, 3, 5], tp: [1, 2, 3, 5, 10], lev: [1, 2, 3, 5, 10], seed: 20240601, entryMode: 'edge', allowOpposite: false, pool: DEFAULT_POOL.slice() },
   data: null, // {key, tfs, ds, sig}
   view: null, // 目前顯示的完整回測 {res, strategy, title}
   searchResult: null,
@@ -208,6 +208,14 @@ function renderSearchPane() {
   checkboxGroup($('s-lev'), [1, 2, 3, 5, 10], state.search.lev, 's-lev');
   decorate($('pane-search'));
 }
+function renderPool() {
+  const sel = new Set(state.search.pool);
+  $('s-pool').innerHTML = conditionGroups().map((g) => `<div class="field"><div class="label">${term(CONDITIONS[g.items[0].id].term.startsWith('pat_') ? 'pat_hammer' : CONDITIONS[g.items[0].id].term, g.group)}</div>
+    <div class="checks">${g.items.map((it) => `<label class="check"><input type="checkbox" name="s-pool" value="${it.id}" ${sel.has(it.id) ? 'checked' : ''}> ${esc(it.label)}</label>`).join('')}</div></div>`).join('');
+  $('pool-count').textContent = `已選 ${sel.size} 個條件`;
+  decorate($('pool-adv'));
+}
+function setPool(ids) { state.search.pool = ids; renderPool(); }
 function readChecks(name) {
   return [...document.querySelectorAll(`input[name="${name}"]:checked`)].map((i) => Number(i.value) || i.value);
 }
@@ -217,7 +225,10 @@ function readSearchConfig() {
   const tfs = [...new Set([state.baseTf, ...readChecks('s-tf')])];
   if (!sl.length || !tp.length) throw new Error('停損與停利至少各選一個');
   const minTrades = Math.max(1, Number($('s-min').value) || 20);
+  const pool = readChecks('s-pool');
+  if (!pool.length) throw new Error('指標池至少要勾選一個條件');
   const cfg = {
+    pool,
     direction: state.market === 'spot' ? 'long' : $('s-dir').value,
     maxConditions: Number($('s-maxc').value), budget: Number($('s-budget').value),
     tfs, minTrades, slList: sl, tpList: tp, levList: state.market === 'spot' ? [1] : (lev.length ? lev : [1]),
@@ -523,6 +534,10 @@ function bind() {
     $('pane-search').hidden = state.tab !== 'search'; $('pane-manual').hidden = state.tab !== 'manual';
   }));
 
+  $('pool-default').addEventListener('click', () => setPool(DEFAULT_POOL.slice()));
+  $('pool-all').addEventListener('click', () => setPool(Object.keys(CONDITIONS)));
+  $('pool-none').addEventListener('click', () => setPool([]));
+  $('s-pool').addEventListener('change', () => { state.search.pool = readChecks('s-pool'); $('pool-count').textContent = `已選 ${state.search.pool.length} 個條件`; });
   $('btn-search').addEventListener('click', runSearch);
   $('btn-manual').addEventListener('click', runManual);
   $('btn-cancel').addEventListener('click', cancelRun);
@@ -597,6 +612,7 @@ async function init() {
   state.manual.entry = [{ id: 'rsi_overbought', tf: state.baseTf, params: { level: 75 }, within: 1 }];
   bind();
   renderSearchPane();
+  renderPool();
   renderManual();
   renderSymbols();
   setMarket(s.market === 'spot' ? 'spot' : 'perp', true);
