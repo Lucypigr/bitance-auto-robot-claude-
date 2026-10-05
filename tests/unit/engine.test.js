@@ -267,3 +267,33 @@ test('runStrategy：多幣種資金平均分配，淨值為各資金袋加總', 
   assert.equal(r.metrics.trades, 2);
   assert.equal(r.metrics.positiveSymbolRatio, 0.5);
 });
+
+test('用 USDT 金額設定：投入 6U、停利 +2U、停損 −3U（1× 槓桿）', () => {
+  // 名目價值 6U：+2U = 價格 +33.33%，−3U = 價格 −50%
+  const win = sim([...flat(100, 2), [100, 134, 99, 120], ...flat(120, 2)], [0], { posUsdt: 6, tpUsdt: 2, slUsdt: 3 });
+  assert.equal(win.trades[0].reason, 'tp');
+  near(win.trades[0].margin, 6);
+  near(win.trades[0].pnl, 2, 1e-9);
+  near(win.finalEquity, 10002, 1e-9);
+  const loss = sim([...flat(100, 2), [100, 101, 49, 60], ...flat(60, 2)], [0], { posUsdt: 6, tpUsdt: 2, slUsdt: 3 });
+  assert.equal(loss.trades[0].reason, 'sl');
+  near(loss.trades[0].pnl, -3, 1e-9);
+  // 槓桿 5×：名目價值 30U → 賺 2U 只需價格 +6.67%，賠 3U 只需 −10%
+  const lev = sim([...flat(100, 2), [100, 107, 99, 105], ...flat(105, 2)], [0], { posUsdt: 6, tpUsdt: 2, slUsdt: 3, lev: 5 });
+  assert.equal(lev.trades[0].reason, 'tp');
+  near(lev.trades[0].pnl, 2, 1e-9);
+  near(lev.trades[0].notional, 30, 1e-9);
+  // 做空對稱
+  const sh = sim([...flat(100, 2), [100, 101, 66, 70], ...flat(70, 2)], [0], { dir: -1, posUsdt: 6, tpUsdt: 2, slUsdt: 3 });
+  assert.equal(sh.trades[0].reason, 'tp');
+  near(sh.trades[0].pnl, 2, 1e-9);
+  // 投入金額超過資金袋時，最多只投入資金袋全部
+  const cap = sim(flat(100, 5), [0], { posUsdt: 1e9 });
+  near(cap.trades[0].margin, 10000);
+});
+
+test('USDT 單位必須指定每筆投入金額', () => {
+  const { ds } = mkDs(flat(100, 5));
+  assert.throws(() => validateStrategy(ds, { dir: 'long', lev: 1, unit: 'usdt', sl: 3, tp: 2, posUsdt: 0 }), /每筆投入/);
+  validateStrategy(ds, { dir: 'long', lev: 1, unit: 'usdt', sl: 3, tp: 2, posUsdt: 6 });
+});

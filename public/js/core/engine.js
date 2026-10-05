@@ -20,7 +20,7 @@ export const DEFAULT_COSTS = {
  * @param {object} ds 資料集
  * @param {object} S 該幣種資料
  * @param {Int32Array} entries 進場訊號索引（第 s 根收盤後成立，遞增）
- * @param {object} cfg {dir, lev, sl, tp, trail, maxBars, posPct, fee, slippage, mmr, perp, exitSig}
+ * @param {object} cfg {dir, lev, sl, tp, slUsdt, tpUsdt, posUsdt, trail, maxBars, posPct, fee, slippage, mmr, perp, exitSig}
  * @param {{from:number,to:number}} range 回測區間 [from, to)
  * @param {number} capital 該幣種分到的資金
  * @param {Float64Array|null} eq 每根 K 線收盤時的淨值（長度 to-from）
@@ -64,12 +64,17 @@ export function simulateSymbol(ds, S, entries, cfg, range, capital, eq) {
 
     const entry = o[k] * (1 + d * slip); // 不利方向滑價（做多買得更貴、做空賣得更便宜）
     const Wb = W;
-    const M = (Wb * posPct) / (1 + L * fee);
+    // 每筆投入的保證金：固定 USDT 金額（最多不超過資金袋）或資金比例
+    const base = cfg.posUsdt > 0 ? Math.min(cfg.posUsdt, Wb) : Wb * posPct;
+    const M = base / (1 + L * fee);
     const notional = M * L;
     const q = notional / entry;
     const feeIn = notional * fee;
-    const slP = cfg.sl > 0 ? entry * (1 - d * cfg.sl) : NaN;
-    const tpP = cfg.tp > 0 ? entry * (1 + d * cfg.tp) : NaN;
+    // 停損／停利可用價格 % 或 USDT 損益金額（金額 ÷ 名目價值 = 價格變動幅度，不含手續費）
+    const slF = cfg.slUsdt > 0 ? cfg.slUsdt / notional : cfg.sl;
+    const tpF = cfg.tpUsdt > 0 ? cfg.tpUsdt / notional : cfg.tp;
+    const slP = slF > 0 ? entry * (1 - d * slF) : NaN;
+    const tpP = tpF > 0 ? entry * (1 + d * tpF) : NaN;
     const trail = cfg.trail > 0;
     let ref = entry;
     let funding = 0;

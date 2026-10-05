@@ -12,8 +12,11 @@ export function strategyToCfg(strategy, costs, market) {
   return {
     dir: strategy.dir === 'short' ? -1 : 1,
     lev: perp ? strategy.lev || 1 : 1,
-    sl: (strategy.sl || 0) / 100,
-    tp: (strategy.tp || 0) / 100,
+    sl: strategy.unit === 'usdt' ? 0 : (strategy.sl || 0) / 100,
+    tp: strategy.unit === 'usdt' ? 0 : (strategy.tp || 0) / 100,
+    slUsdt: strategy.unit === 'usdt' ? strategy.sl || 0 : 0,
+    tpUsdt: strategy.unit === 'usdt' ? strategy.tp || 0 : 0,
+    posUsdt: strategy.posUsdt || 0,
     trail: (strategy.trail || 0) / 100,
     maxBars: strategy.maxBars || 0,
     posPct: costs.posPct ?? 1,
@@ -29,6 +32,7 @@ export function validateStrategy(ds, strategy) {
     if (strategy.dir === 'short') throw new Error('現貨市場無法做空');
     if ((strategy.lev || 1) !== 1) throw new Error('現貨市場不支援槓桿');
   }
+  if (strategy.unit === 'usdt' && !(strategy.posUsdt > 0)) throw new Error('以 USDT 金額設定停損／停利時，必須同時指定「每筆投入金額」');
   if (strategy.lev < 1 || strategy.lev > 10) throw new Error('槓桿必須介於 1× ~ 10×');
 }
 

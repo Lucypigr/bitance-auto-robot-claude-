@@ -167,3 +167,31 @@ test('自訂指標池：預設含全部 9 種 K 線型態，可加選其他指�
   await page.locator('#tab-board').click();
   await expect(page.getByTestId('board').locator('tbody tr').first()).toBeVisible();
 });
+
+test('USDT 金額停損停利：投入 6U、停利 2U、停損 3U（手動與自動搜尋）', async ({ page }) => {
+  await page.goto('/index.html');
+  await page.locator('#tab-manual').click();
+  await page.selectOption('#m-template', 'overbought');
+  await page.selectOption('#m-unit', 'usdt');
+  await page.fill('#m-sl', '3'); await page.fill('#m-tp', '2');
+  await page.fill('#m-usdt', '0');
+  await page.selectOption('#days', '90');
+  await page.locator('#btn-manual').click();
+  await expect(page.locator('#run-error')).toContainText('每筆投入');
+  await page.fill('#m-usdt', '6');
+  await expect(page.locator('#m-summary')).toContainText('停損 3 USDT');
+  await expect(page.locator('#m-summary')).toContainText('停利 2 USDT');
+  await page.locator('#btn-manual').click();
+  await expect(page.getByTestId('compare')).toBeVisible({ timeout: 60000 });
+  await expect(page.getByTestId('strategy-desc')).toContainText('每筆 6 USDT');
+  // 自動搜尋
+  await page.locator('#tab-search').click();
+  await page.locator('#step2 details.adv summary').first().click();
+  await page.selectOption('#s-unit', 'usdt');
+  await expect(page.locator('input[name="s-sl"]').first()).toBeDisabled();
+  await page.fill('#s-usdt', '6'); await page.fill('#s-sl-custom', '3'); await page.fill('#s-tp-custom', '2, 4');
+  await page.selectOption('#s-budget', '30'); await page.fill('#s-min', '5');
+  await page.locator('#btn-search').click();
+  await expect(page.getByTestId('champ-netReturn')).toBeVisible({ timeout: 90000 });
+  await expect(page.locator('#r-champions')).toContainText('每筆 6 USDT');
+});

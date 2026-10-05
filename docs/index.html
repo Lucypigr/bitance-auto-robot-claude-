@@ -141,8 +141,16 @@
         <div class="field"><div class="label"><span data-term="cross_tf">條件使用的週期</span>（不能小於執行週期）</div><div id="s-tfs" class="checks"></div></div>
         <details class="adv">
           <summary>進階：停損、停利、槓桿的搜尋範圍</summary>
-          <div class="field"><div class="label"><span data-term="stoploss">停損 %</span></div><div class="checks" id="s-sl"></div></div>
-          <div class="field"><div class="label"><span data-term="takeprofit">停利 %</span></div><div class="checks" id="s-tp"></div></div>
+          <div class="grid2">
+            <div class="field"><label class="label" for="s-unit"><span data-term="usdt_exit">停損停利單位</span></label>
+              <select id="s-unit"><option value="pct" selected>價格 %</option><option value="usdt">USDT 損益金額</option></select></div>
+            <div class="field"><label class="label" for="s-usdt">每筆投入（USDT 保證金）</label><input id="s-usdt" type="number" min="0" step="1" value="0"></div>
+          </div>
+          <div class="field"><div class="label"><span data-term="stoploss">停損</span>（勾選）</div><div class="checks" id="s-sl"></div>
+            <input id="s-sl-custom" type="text" placeholder="自訂，例如 1.5, 4（用逗號分隔）" aria-label="自訂停損"></div>
+          <div class="field"><div class="label"><span data-term="takeprofit">停利</span>（勾選）</div><div class="checks" id="s-tp"></div>
+            <input id="s-tp-custom" type="text" placeholder="自訂，例如 2, 7（用逗號分隔）" aria-label="自訂停利"></div>
+          <div id="s-unit-note" class="note info" hidden>USDT 模式：請在下方「自訂」欄填入金額（預設勾選會停用），並填寫每筆投入。例如投入 6、停利 2、停損 3。</div>
           <div class="field" id="s-lev-field"><div class="label"><span data-term="leverage">槓桿</span>（只是抽樣維度，不會讓候選數變多）</div><div class="checks" id="s-lev"></div></div>
           <div class="field"><div class="label">RSI 門檻</div>
             <div class="muted small"><span data-term="rsi_overbought">超買</span> 70／75／80　<span data-term="rsi_oversold">超賣</span> 30／25／20（固定）</div></div>
@@ -186,8 +194,13 @@
           <div id="m-summary" class="note info"></div>
         </div>
         <div class="grid2">
-          <div class="field"><label class="label" for="m-sl"><span data-term="stoploss">停損</span>（%，0=不設）</label><input id="m-sl" type="number" min="0" max="50" step="0.5" value="3"></div>
-          <div class="field"><label class="label" for="m-tp"><span data-term="takeprofit">停利</span>（%，0=不設）</label><input id="m-tp" type="number" min="0" max="500" step="0.5" value="5"></div>
+          <div class="field"><label class="label" for="m-unit"><span data-term="usdt_exit">停損停利單位</span></label>
+            <select id="m-unit"><option value="pct" selected>價格 %</option><option value="usdt">USDT 損益金額</option></select></div>
+          <div class="field"><label class="label" for="m-usdt">每筆投入（USDT 保證金，0＝用資金比例）</label><input id="m-usdt" type="number" min="0" step="1" value="0"></div>
+        </div>
+        <div class="grid2">
+          <div class="field"><label class="label" for="m-sl"><span data-term="stoploss">停損</span>（0=不設）</label><input id="m-sl" type="number" min="0" max="50" step="0.5" value="3"></div>
+          <div class="field"><label class="label" for="m-tp"><span data-term="takeprofit">停利</span>（0=不設）</label><input id="m-tp" type="number" min="0" max="500" step="0.5" value="5"></div>
           <div class="field"><label class="label" for="m-trail"><span data-term="trailing_stop">移動停損</span>（%，0=不設）</label><input id="m-trail" type="number" min="0" max="50" step="0.5" value="0"></div>
           <div class="field"><label class="label" for="m-lev"><span data-term="leverage">槓桿</span>（1～10 倍）</label>
             <input id="m-lev" type="range" min="1" max="10" step="1" value="1"><output id="m-lev-out">1×</output></div>

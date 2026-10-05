@@ -24,7 +24,7 @@ const state = {
   days: 180,
   useMark: true,
   tab: 'search',
-  manual: { dir: 'short', entry: [], exit: [], sl: 3, tp: 5, trail: 0, lev: 1, maxBars: 0, entryMode: 'edge' },
+  manual: { unit: 'pct', posUsdt: 0, dir: 'short', entry: [], exit: [], sl: 3, tp: 5, trail: 0, lev: 1, maxBars: 0, entryMode: 'edge' },
   search: { direction: 'both', maxConditions: 3, budget: 120, tfs: [], minTrades: 20, sl: [1, 2, 3, 5], tp: [1, 2, 3, 5, 10], lev: [1, 2, 3, 5, 10], seed: 20240601, entryMode: 'edge', allowOpposite: false, pool: DEFAULT_POOL.slice() },
   data: null, // {key, tfs, ds, sig}
   view: null, // 目前顯示的完整回測 {res, strategy, title}
@@ -206,6 +206,7 @@ function renderSearchPane() {
   checkboxGroup($('s-sl'), [1, 2, 3, 5], state.search.sl, 's-sl');
   checkboxGroup($('s-tp'), [1, 2, 3, 5, 10], state.search.tp, 's-tp');
   checkboxGroup($('s-lev'), [1, 2, 3, 5, 10], state.search.lev, 's-lev');
+  if ($('s-unit').value === 'usdt') document.querySelectorAll('input[name="s-sl"], input[name="s-tp"]').forEach((i) => { i.disabled = true; });
   decorate($('pane-search'));
 }
 function renderPool() {
@@ -221,14 +222,20 @@ function readChecks(name) {
 }
 
 function readSearchConfig() {
-  const sl = readChecks('s-sl'); const tp = readChecks('s-tp'); const lev = readChecks('s-lev');
+  const unit = $('s-unit').value;
+  const parse = (id) => [...new Set($(id).value.split(/[,，\s]+/).map(Number).filter((x) => Number.isFinite(x) && x > 0))];
+  const posUsdt = Math.max(0, Number($('s-usdt').value) || 0);
+  const sl = [...(unit === 'pct' ? readChecks('s-sl') : []), ...parse('s-sl-custom')];
+  const tp = [...(unit === 'pct' ? readChecks('s-tp') : []), ...parse('s-tp-custom')];
+  const lev = readChecks('s-lev');
+  if (unit === 'usdt' && !(posUsdt > 0)) throw new Error('USDT 模式需要填寫「每筆投入」金額');
   const tfs = [...new Set([state.baseTf, ...readChecks('s-tf')])];
   if (!sl.length || !tp.length) throw new Error('停損與停利至少各選一個');
   const minTrades = Math.max(1, Number($('s-min').value) || 20);
   const pool = readChecks('s-pool');
   if (!pool.length) throw new Error('指標池至少要勾選一個條件');
   const cfg = {
-    pool,
+    pool, unit, posUsdt,
     direction: state.market === 'spot' ? 'long' : $('s-dir').value,
     maxConditions: Number($('s-maxc').value), budget: Number($('s-budget').value),
     tfs, minTrades, slList: sl, tpList: tp, levList: state.market === 'spot' ? [1] : (lev.length ? lev : [1]),
@@ -255,11 +262,13 @@ function readManualStrategy(soft = false) {
   const m = state.manual;
   const num = (id) => Math.max(0, Number($(id).value) || 0);
   m.sl = num('m-sl'); m.tp = num('m-tp'); m.trail = num('m-trail'); m.maxBars = Math.floor(num('m-maxbars'));
+  m.unit = $('m-unit').value; m.posUsdt = num('m-usdt');
   m.lev = state.market === 'spot' ? 1 : Number($('m-lev').value) || 1;
   m.entryMode = $('m-entrymode').value;
   const fix = (c) => { const n = normalizeSpec(c); if (tfIndex(n.tf) < tfIndex(state.baseTf)) n.tf = state.baseTf; return n; };
-  const st = { dir: m.dir, entry: m.entry.map(fix), exit: m.exit.map(fix), entryMode: m.entryMode, lev: m.lev, sl: m.sl, tp: m.tp, trail: m.trail, maxBars: m.maxBars };
+  const st = { dir: m.dir, entry: m.entry.map(fix), exit: m.exit.map(fix), entryMode: m.entryMode, lev: m.lev, unit: m.unit, posUsdt: m.posUsdt, sl: m.sl, tp: m.tp, trail: m.trail, maxBars: m.maxBars };
   if (!soft && !st.entry.length) throw new Error('請至少新增一個進場條件');
+  if (!soft && st.unit === 'usdt' && !(st.posUsdt > 0)) throw new Error('USDT 模式需要填寫「每筆投入」金額（例如 6）');
   return st;
 }
 function applyTemplate(id) {
@@ -269,6 +278,7 @@ function applyTemplate(id) {
   const s = t.strategy(state.baseTf);
   Object.assign(state.manual, { dir: s.dir, entry: s.entry, exit: s.exit || [], sl: s.sl, tp: s.tp, trail: s.trail || 0, lev: state.market === 'spot' ? 1 : s.lev, maxBars: 0 });
   if (state.market === 'spot' && s.dir === 'short') state.manual.dir = 'long';
+  $('m-unit').value = 'pct'; $('m-usdt').value = 0;
   $('m-sl').value = state.manual.sl; $('m-tp').value = state.manual.tp; $('m-trail').value = state.manual.trail;
   $('m-lev').value = state.manual.lev; $('m-lev-out').textContent = `${state.manual.lev}×`; $('m-maxbars').value = 0;
   setDir(state.manual.dir);
@@ -534,6 +544,11 @@ function bind() {
     $('pane-search').hidden = state.tab !== 'search'; $('pane-manual').hidden = state.tab !== 'manual';
   }));
 
+  $('s-unit').addEventListener('change', () => {
+    const usdt = $('s-unit').value === 'usdt';
+    document.querySelectorAll('input[name="s-sl"], input[name="s-tp"]').forEach((i) => { i.disabled = usdt; });
+    $('s-unit-note').hidden = !usdt;
+  });
   $('pool-default').addEventListener('click', () => setPool(DEFAULT_POOL.slice()));
   $('pool-all').addEventListener('click', () => setPool(Object.keys(CONDITIONS)));
   $('pool-none').addEventListener('click', () => setPool([]));
@@ -551,7 +566,7 @@ function bind() {
   $('m-add-exit').addEventListener('click', () => { state.manual.exit = [...state.manual.exit, { ...defaultCondition(state.baseTf), id: 'rsi_overbought' }]; renderManual(); });
   bindConditionList($('m-entry'), () => state.manual.entry, (l) => { state.manual.entry = l; renderManual(); });
   bindConditionList($('m-exit'), () => state.manual.exit, (l) => { state.manual.exit = l; renderManual(); });
-  for (const id of ['m-sl', 'm-tp', 'm-trail', 'm-maxbars', 'm-entrymode']) $(id).addEventListener('input', renderManual);
+  for (const id of ['m-sl', 'm-tp', 'm-trail', 'm-maxbars', 'm-entrymode', 'm-unit', 'm-usdt']) $(id).addEventListener('input', renderManual);
   $('m-lev').addEventListener('input', (e) => { $('m-lev-out').textContent = `${e.target.value}×`; renderManual(); });
 
   // 結果區
