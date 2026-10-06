@@ -195,3 +195,23 @@ test('USDT 金額停損停利：投入 6U、停利 2U、停損 3U（手動與自
   await expect(page.getByTestId('champ-netReturn')).toBeVisible({ timeout: 90000 });
   await expect(page.locator('#r-champions')).toContainText('每筆 6 USDT');
 });
+
+test('訓練／樣本外比例可改成 50/50，結果標題同步更新', async ({ page }) => {
+  await page.goto('/index.html');
+  await page.selectOption('#train-pct', '50');
+  await page.locator('#tab-manual').click();
+  await page.selectOption('#m-template', 'overbought');
+  await page.selectOption('#days', '90');
+  await page.locator('#btn-manual').click();
+  const cmp = page.getByTestId('compare');
+  await expect(cmp).toBeVisible({ timeout: 60000 });
+  await expect(cmp).toContainText('訓練期 50%');
+  await expect(cmp).toContainText('樣本外 50%');
+  await page.locator('#tab-search').click();
+  await page.selectOption('#s-budget', '30'); await page.fill('#s-min', '5');
+  await page.locator('#btn-search').click();
+  await expect(page.getByTestId('champ-netReturn')).toBeVisible({ timeout: 90000 });
+  await expect(page.getByTestId('compare')).toContainText('訓練期 50%');
+  await page.locator('#tab-board').click();
+  await expect(page.locator('#board')).toContainText('前 50%');
+});

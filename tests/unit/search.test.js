@@ -203,3 +203,24 @@ test('USDT 模式搜尋：候選帶有單位與每筆投入，描述清楚', asy
     for (const t of []) void t;
   }
 });
+
+test('【50/50 切割】比例可調：切點在中間，且改動樣本外資料仍不影響候選與冠軍', async () => {
+  const cfg50 = { ...CFG, trainFrac: 0.5 };
+  const A = makeMarket({ seed: 9 });
+  const r = splitRanges(A.ds, 0.5);
+  const total = A.ds.n - A.ds.windowStartIdx;
+  assert.equal(r.train.to - r.train.from, Math.floor(total * 0.5));
+  assert.equal(r.holdout.to - r.holdout.from, total - Math.floor(total * 0.5));
+  assert.throws(() => splitRanges(A.ds, 0.95), /訓練比例/);
+  const cut = Math.round((A.ds.t0 + r.splitIdx * A.ds.baseMs - ANCHOR) / 300000);
+  const B = makeMarket({
+    seed: 9,
+    mutate: (path) => { for (let i = cut; i < path.c.length; i++) { path.o[i] *= 0.5; path.h[i] *= 0.5; path.l[i] *= 0.5; path.c[i] *= 0.5; } },
+  });
+  const ra = await runSearch(A.sig, cfg50, COSTS);
+  const rb = await runSearch(B.sig, cfg50, COSTS);
+  assert.equal(ra.config.trainFrac, 0.5);
+  assert.deepEqual(ra.candidates.map((c) => c.train), rb.candidates.map((c) => c.train));
+  assert.deepEqual(ra.champions, rb.champions);
+  assert.equal(ra.ranges.splitIdx, r.splitIdx);
+});

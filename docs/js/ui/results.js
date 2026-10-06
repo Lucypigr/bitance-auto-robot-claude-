@@ -34,9 +34,10 @@ const ROWS = [
 export function renderCompare(el, res, ds) {
   const r = res.ranges;
   const cap = (rg) => `${fmtDate(ds.t0 + rg.from * ds.baseMs)} ～ ${fmtDate(ds.t0 + rg.to * ds.baseMs - 1)}`;
+  const trainPct = Math.round((100 * (r.train.to - r.train.from)) / (r.full.to - r.full.from));
   const cols = [
-    ['col-train', term('training', '訓練期 70%'), cap(r.train), res.train.metrics],
-    ['col-oos', term('oos', '樣本外 30%'), cap(r.holdout), res.holdout.metrics],
+    ['col-train', term('training', `訓練期 ${trainPct}%`), cap(r.train), res.train.metrics],
+    ['col-oos', term('oos', `樣本外 ${100 - trainPct}%`), cap(r.holdout), res.holdout.metrics],
     ['', '全期間（參考）', cap(r.full), res.full.metrics],
   ];
   const head = cols.map(([c, t, d]) => `<th class="${c}">${t}<div class="muted small">${d}</div></th>`).join('');
@@ -138,6 +139,7 @@ export function sortValue(e, key) {
 }
 
 export function renderBoard(el, result, sort, minTrades) {
+  const trainPct = Math.round(result.config.trainFrac * 100);
   const rows = result.candidates.slice();
   const dirMul = sort.dir === 'asc' ? 1 : -1;
   rows.sort((a, b) => {
@@ -158,7 +160,7 @@ export function renderBoard(el, result, sort, minTrades) {
       <td>${i + 1}</td><td class="txt">${star}${esc(e.desc)}${bad ? ` <span class="badge neutral">${bad}</span>` : ''}</td>
       ${BOARD_COLS.slice(2).map(([, , fn]) => `<td>${fn(e)}</td>`).join('')}</tr>`;
   }).join('');
-  el.innerHTML = `<div class="note info">排行榜<b>只顯示訓練期（前 70%）</b>的成績。點選任一列可查看完整回測（含樣本外）。請<b>不要</b>因為看到某組的樣本外特別好就改選它——那樣樣本外就不再是公平的驗證了。（共 ${rows.length} 組候選，${term('overfitting', '測越多組越容易碰巧挑到運氣好的')}。）</div>
+  el.innerHTML = `<div class="note info">排行榜<b>只顯示訓練期（前 ${trainPct}%）</b>的成績。點選任一列可查看完整回測（含樣本外）。請<b>不要</b>因為看到某組的樣本外特別好就改選它——那樣樣本外就不再是公平的驗證了。（共 ${rows.length} 組候選，${term('overfitting', '測越多組越容易碰巧挑到運氣好的')}。）</div>
     <div class="tbl-wrap" style="max-height:520px;overflow:auto"><table class="tbl sortable" data-testid="board"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
 }
 

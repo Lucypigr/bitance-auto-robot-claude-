@@ -98,6 +98,7 @@ export function buildDataset({ market, baseTf, windowStart, endTime, symbols, wa
 
 /** 訓練／驗證切割：以時間軸索引切成前 trainFrac / 後 (1-trainFrac) */
 export function splitRanges(ds, trainFrac = 0.7) {
+  if (!(trainFrac >= 0.2 && trainFrac <= 0.9)) throw new Error('訓練比例必須介於 20% ~ 90%');
   const total = ds.n - ds.windowStartIdx;
   const splitIdx = ds.windowStartIdx + Math.floor(total * trainFrac);
   return {

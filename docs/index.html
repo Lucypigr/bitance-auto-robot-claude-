@@ -38,7 +38,7 @@
       <ol class="steps">
         <li><b>選市場與幣種</b>（最多 15 個）</li>
         <li><b>設定策略</b>：自己組條件，或讓系統「自動搜尋」</li>
-        <li><b>先看「樣本外」</b>結果：它是挑選時完全沒看過的後 30% 資料</li>
+        <li><b>先看「樣本外」</b>結果：它是挑選時完全沒看過的後段資料（預設後 30%）</li>
       </ol>
       <button id="btn-demo" class="btn primary block" type="button">🚀 一鍵示範：BTC＋ETH 自動搜尋</button>
       <p class="hint">所有名詞旁的 <span class="info-sample">ⓘ</span> 都可以點（或滑鼠移上去）看白話說明與常見誤解。</p>
@@ -100,6 +100,15 @@
           </select>
         </div>
       </div>
+      <div class="field">
+        <label class="label" for="train-pct"><span data-term="split_ratio">訓練／樣本外比例</span></label>
+        <select id="train-pct">
+          <option value="50">50 ／ 50（驗證資料最多）</option>
+          <option value="60">60 ／ 40</option>
+          <option value="70" selected>70 ／ 30（預設）</option>
+          <option value="80">80 ／ 20</option>
+        </select>
+      </div>
       <div id="data-warn" class="note warn" hidden></div>
 
       <details class="adv">
@@ -127,7 +136,7 @@
 
       <!-- 自動搜尋 -->
       <div id="pane-search" class="pane">
-        <p class="muted small">系統會在<b>前 70% 的資料（<span data-term="training">訓練期</span>）</b>測試大量「條件＋停損停利＋槓桿」組合並挑出三位冠軍，再用<b>最後 30%（<span data-term="oos">樣本外</span>）</b>驗收。</p>
+        <p class="muted small">系統會在<b>前段資料（<span data-term="training">訓練期</span>，預設 70%）</b>測試大量「條件＋停損停利＋槓桿」組合並挑出三位冠軍，再用<b>最後段（<span data-term="oos">樣本外</span>，預設 30%）</b>驗收。比例可在步驟 1 調整。</p>
         <div class="grid2">
           <div class="field"><label class="label" for="s-dir">方向</label>
             <select id="s-dir"><option value="both">多空都搜尋</option><option value="long">只做多</option><option value="short">只做空</option></select></div>
