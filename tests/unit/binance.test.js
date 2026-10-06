@@ -139,3 +139,39 @@ test('漲幅榜：listSymbols 帶出 24h 漲跌幅，sortSymbols 可依成交額
   // 舊快取沒有 change24h 欄位時不應壞掉
   assert.equal(sortSymbols([{ symbol: 'A', quoteVolume: 1 }, { symbol: 'B', quoteVolume: 2 }], 'gain')[0].symbol, 'B');
 });
+
+test('歷史漲幅榜：windowReturn 只使用區間內已收盤的完整日線', async () => {
+  const { windowReturn, historyWindow } = await import('../../public/js/data/binance.js');
+  const D = 86400000;
+  const rows = { t: Float64Array.from([0, D, 2 * D, 3 * D]), o: Float64Array.from([10, 11, 12, 13]), c: Float64Array.from([11, 12, 13, 99]) };
+  assert.equal(windowReturn(rows, 3 * D, 3), 13 / 10 - 1); // 區間 [0, 3D)：不含第 4 根（99）
+  assert.equal(windowReturn(rows, 3 * D, 4), null, '區間開始前沒有資料（上市太晚）→ 排除');
+  assert.equal(windowReturn(rows, 3 * D, 2), 13 / 11 - 1);
+  const w = historyWindow(Date.UTC(2026, 9, 6, 15), 7, 7);
+  assert.equal(w.end, Date.UTC(2026, 9, 6) - 7 * D);
+  assert.equal(w.start, w.end - 7 * D);
+});
+
+test('歷史漲幅榜：掃描多個合約，與直接用日線計算的結果一致，且不受區間之後的資料影響', async () => {
+  const { sortSymbols } = await import('../../public/js/data/binance.js');
+  const fake = new FakeBinance({ nowMs: NOW });
+  const c = new BinanceClient({ fetchImpl: fakeFetch(fake) });
+  const syms = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'XRPUSDT', 'DOGEUSDT'];
+  const opts = { endDaysAgo: 7, windowDays: 7, now: NOW };
+  const r = await c.historicalGainers('perp', syms, opts);
+  assert.equal(r.returns.size, 5);
+  for (const sym of syms) {
+    const k = await c.klines('perp', sym, '1d', r.start, r.end - 1, { now: NOW });
+    assert.equal(k.t.length, 7);
+    assert.ok(Math.abs(r.returns.get(sym) - (k.c[6] / k.o[0] - 1)) < 1e-12);
+    assert.ok(k.t[6] + 86400000 <= r.end, '最後一根必須在區間結束前收盤');
+  }
+  // 兩天後再算同一個「絕對區間」，結果不變（區間之後的新資料不會混進來）
+  const later = await c.historicalGainers('perp', syms, { endDaysAgo: 9, windowDays: 7, now: NOW + 2 * 86400000 });
+  assert.equal(later.start, r.start);
+  for (const sym of syms) assert.equal(later.returns.get(sym), r.returns.get(sym));
+  const list = syms.map((s) => ({ symbol: s, quoteVolume: 1, histRet: r.returns.get(s) }));
+  const sorted = sortSymbols(list, 'hist');
+  for (let i = 1; i < sorted.length; i++) assert.ok(sorted[i - 1].histRet >= sorted[i].histRet);
+  assert.equal(sortSymbols([{ symbol: 'X', quoteVolume: 1 }, ...list], 'hist').at(-1).symbol, 'X', '沒有榜單資料的排最後');
+});

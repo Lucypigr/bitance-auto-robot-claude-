@@ -9,6 +9,7 @@ import { ComputeClient } from './worker-client.js';
 import { refreshChartTheme, destroyAll, candleChart, toChartTime } from './charts.js';
 import { TEMPLATES, defaultCondition, renderConditionList, bindConditionList, describeManual } from './strategy-form.js';
 import * as R from './results.js';
+import { diagnoseStrategy, diagnoseSearch } from '../core/diagnose.js';
 import { fmtMoney, fmtPct } from './format.js';
 
 const $ = (id) => document.getElementById(id);
@@ -128,8 +129,41 @@ async function loadSymbolList(market) {
   }
 }
 
+const histCache = new Map();
 function sortedSymbols() {
-  return sortSymbols(state.allSymbols[state.market] || [], $('sym-sort').value);
+  const mode = $('sym-sort').value;
+  let list = state.allSymbols[state.market] || [];
+  if (mode === 'hist' || mode === 'histloss') {
+    const h = histCache.get(histKey());
+    list = h ? list.filter((s) => h.returns.has(s.symbol)).map((s) => ({ ...s, histRet: h.returns.get(s.symbol) })) : [];
+  }
+  return sortSymbols(list, mode);
+}
+const histKey = () => `${state.market}|${$('hist-end').value}|${$('hist-win').value}|${$('hist-top').value}`;
+function histNote() {
+  const h = histCache.get(histKey());
+  if (!h) return '';
+  const f = (ms) => new Date(ms).toISOString().slice(0, 10);
+  const endDays = Number($('hist-end').value);
+  const overlap = state.days > endDays;
+  return `榜單區間（UTC 日線）：${f(h.start)} ～ ${f(h.end - 1)}，共 ${h.returns.size} 個合約有完整資料。` +
+    (overlap ? ` <b class="neg">⚠ 回測期間（近 ${state.days} 天）包含這段榜單區間，等於事後挑出贏家，結果會偏樂觀。</b>` : ' ✓ 回測期間在榜單區間之後，可當作「前瞻」檢驗。');
+}
+async function computeHist() {
+  const st = $('hist-status');
+  const list = (state.allSymbols[state.market] || []).slice(0, Number($('hist-top').value));
+  st.textContent = '正在下載日線並計算…';
+  $('hist-go').disabled = true;
+  try {
+    const r = await client.historicalGainers(state.market, list.map((s) => s.symbol), {
+      endDaysAgo: Number($('hist-end').value), windowDays: Number($('hist-win').value),
+      onProgress: (p) => { st.textContent = `計算中 ${p.done}／${p.total}`; },
+    });
+    histCache.set(histKey(), r);
+    st.innerHTML = histNote();
+  } catch (e) { st.innerHTML = `<span class="neg">計算失敗：${esc(e.message)}</span>`; }
+  $('hist-go').disabled = false;
+  renderSymbols();
 }
 
 function renderSymbols() {
@@ -137,7 +171,7 @@ function renderSymbols() {
   const q = $('sym-search').value.trim().toUpperCase();
   const sel = new Set(state.symbols);
   const filtered = (q ? list.filter((s) => s.symbol.includes(q)) : list).slice(0, 80);
-  $('sym-list').innerHTML = filtered.map((s) => `<button type="button" class="sym-item" role="option" aria-selected="${sel.has(s.symbol)}" data-sym="${s.symbol}"><span>${sel.has(s.symbol) ? '✓ ' : ''}${esc(s.base || symOf(s.symbol))}<span class="muted">/USDT</span></span><span class="vol">${s.change24h !== undefined ? `<b class="${s.change24h >= 0 ? 'pos' : 'neg'}">${s.change24h >= 0 ? '+' : ''}${s.change24h.toFixed(1)}%</b> ` : ''}${s.quoteVolume ? '成交 ' + (s.quoteVolume / 1e6).toFixed(0) + 'M' : ''}</span></button>`).join('') || '<div class="muted small" style="padding:8px">找不到符合的幣種</div>';
+  $('sym-list').innerHTML = filtered.map((s) => `<button type="button" class="sym-item" role="option" aria-selected="${sel.has(s.symbol)}" data-sym="${s.symbol}"><span>${sel.has(s.symbol) ? '✓ ' : ''}${esc(s.base || symOf(s.symbol))}<span class="muted">/USDT</span></span><span class="vol">${(() => { const v = s.histRet !== undefined ? s.histRet * 100 : s.change24h; return v !== undefined ? `<b class="${v >= 0 ? 'pos' : 'neg'}">${v >= 0 ? '+' : ''}${v.toFixed(1)}%</b> ` : ''; })()}${s.quoteVolume ? '成交 ' + (s.quoteVolume / 1e6).toFixed(0) + 'M' : ''}</span></button>`).join('') || `<div class="muted small" style="padding:8px">${['hist', 'histloss'].includes($('sym-sort').value) && !list.length ? '請先設定區間並按「計算榜單」' : '找不到符合的幣種'}</div>`;
   $('sym-selected').innerHTML = state.symbols.map((s) => `<span class="chip">${esc(symOf(s))}<button type="button" data-rm="${s}" aria-label="移除 ${esc(s)}">✕</button></span>`).join('');
   $('sym-count').textContent = `（已選 ${state.symbols.length}／${MAX_SYMBOLS}）`;
 }
@@ -408,7 +442,7 @@ function showSearchResult(result, costs) {
   const n = result.candidates.length;
   $('r-title').innerHTML = `<div><h2>自動搜尋結果</h2>
     <div class="muted small">共測試 <b>${n}</b> 組候選（上限 ${result.config.budget}）；符合冠軍資格 ${result.eligibleCount} 組。${costsNote(costs)}。冠軍只用<b>訓練期</b>挑選，<b>樣本外</b>只做驗收。</div>
-    ${result.warnings.map((w) => `<div class="note warn">${esc(w)}</div>`).join('')}</div>`;
+    ${result.warnings.map((w) => `<div class="note warn">${esc(w)}</div>`).join('')}${R.renderSearchTips(diagnoseSearch(result, state.data.ds))}</div>`;
   $('r-champions').hidden = false;
   R.renderChampions($('r-champions'), result);
   $('tab-board').hidden = false;
@@ -417,7 +451,7 @@ function showSearchResult(result, costs) {
     const d = state.detailCache.get(first);
     showDetail({ res: d, strategy: d.strategy, title: null, costs, keepHead: true, candidateId: first });
   } else {
-    $('r-verdict').hidden = true; $('r-compare').hidden = true;
+    $('r-verdict').hidden = true; $('r-compare').hidden = true; $('r-diag').hidden = true;
     document.querySelector('.card.charts').hidden = false;
     state.view = null;
     selectChartTab('board');
@@ -441,10 +475,12 @@ function showDetail({ res, strategy, title, costs, keepHead, candidateId }) {
     const old = $('r-title').querySelectorAll('[data-testid="detail-head"]');
     if (old.length > 1) old[0].remove();
   }
-  $('r-verdict').hidden = false; $('r-compare').hidden = false;
+  $('r-verdict').hidden = false; $('r-compare').hidden = false; $('r-diag').hidden = false;
   document.querySelector('.card.charts').hidden = false;
   R.renderVerdict($('r-verdict'), res);
   R.renderCompare($('r-compare'), res, ds);
+  const minT = state.searchResult ? state.searchResult.config.minTrades : 20;
+  R.renderDiagnosis($('r-diag'), diagnoseStrategy(state.data.sig, strategy, res.ranges, res, { minTrades: minT, costs }));
   const sel = $('c-symbol');
   sel.innerHTML = ds.symbols.map((s, i) => `<option value="${i}">${esc(s.symbol)}</option>`).join('');
   decorate($('result-body'));
@@ -531,17 +567,26 @@ function renderTrades() {
 function bind() {
   document.querySelectorAll('[data-market]').forEach((b) => b.addEventListener('click', () => setMarket(b.dataset.market)));
   $('sym-search').addEventListener('input', renderSymbols);
-  $('sym-sort').addEventListener('change', renderSymbols);
+  $('sym-sort').addEventListener('change', () => {
+    const hist = ['hist', 'histloss'].includes($('sym-sort').value);
+    $('hist-box').hidden = !hist;
+    if (hist) $('hist-status').innerHTML = histNote() || '設定區間後按「計算榜單」。';
+    renderSymbols();
+  });
+  $('hist-go').addEventListener('click', computeHist);
+  for (const id of ['hist-end', 'hist-win', 'hist-top']) $(id).addEventListener('change', () => { $('hist-status').innerHTML = histNote() || '設定區間後按「計算榜單」。'; renderSymbols(); });
   $('sym-list').addEventListener('click', (e) => { const b = e.target.closest('[data-sym]'); if (b) toggleSymbol(b.dataset.sym); });
   $('sym-selected').addEventListener('click', (e) => { const b = e.target.closest('[data-rm]'); if (b) toggleSymbol(b.dataset.rm); });
   document.querySelectorAll('[data-preset]').forEach((b) => b.addEventListener('click', () => {
     const n = Number(b.dataset.preset);
-    state.symbols = sortedSymbols().slice(0, n).map((s) => s.symbol);
+    const ranked = sortedSymbols();
+    if (n > 0 && !ranked.length) { $('sym-status').innerHTML = '<span class="neg">榜單還沒有資料，請先按「計算榜單」</span>'; return; }
+    state.symbols = ranked.slice(0, n).map((s) => s.symbol);
     renderSymbols(); updateDataWarn(); saveSettings();
   }));
   $('base-tf').addEventListener('change', (e) => setBaseTf(e.target.value));
   $('train-pct').addEventListener('change', saveSettings);
-  $('days').addEventListener('change', (e) => { state.days = Number(e.target.value); updateDataWarn(); saveSettings(); });
+  $('days').addEventListener('change', (e) => { state.days = Number(e.target.value); if (!$('hist-box').hidden) $('hist-status').innerHTML = histNote(); updateDataWarn(); saveSettings(); });
   for (const id of ['capital', 'posPct', 'feePct', 'slipPct', 'mmrPct']) $(id).addEventListener('change', saveSettings);
 
   document.querySelectorAll('[data-tab]').forEach((b) => b.addEventListener('click', () => {

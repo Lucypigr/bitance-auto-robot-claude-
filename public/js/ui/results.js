@@ -359,3 +359,28 @@ export function buildCandleChart(el, { ds, sig, res, strategy, si, show, legendE
 }
 void fmtTime;
 void specKey;
+
+// ---------------- 設定檢查（交易數太少時）----------------
+export function renderDiagnosis(el, d) {
+  const rows = [
+    ...d.conditions.map((c, i) => `<tr><td class="txt">條件 ${i + 1}：${esc(c.text)}</td><td class="${c.train === 0 ? 'neg' : ''}">${c.train.toLocaleString()}</td><td>${c.holdout.toLocaleString()}</td></tr>`),
+    `<tr class="hl"><td class="txt">${d.conditions.length > 1 ? '全部條件「同時成立」的 K 線數' : '條件成立的 K 線數'}</td><td>${d.andTrain.toLocaleString()}</td><td>${d.andHold.toLocaleString()}</td></tr>`,
+    `<tr><td class="txt">進場訊號（${term('entry_mode', '進場方式')}過濾後）</td><td>${d.entryTrain.toLocaleString()}</td><td>${d.entryHold.toLocaleString()}</td></tr>`,
+    `<tr class="hl"><td class="txt"><b>實際成交的交易數</b>（一個幣種同時只持一個部位）</td><td class="${d.low ? 'neg' : ''}"><b>${d.tradesTrain}</b></td><td><b>${d.tradesHold}</b></td></tr>`,
+  ].join('');
+  const sym = d.perSymbol.map((p) => `<tr><td>${esc(p.symbol)}</td><td>${p.bars.toLocaleString()}</td><td>${p.and}</td><td>${p.entries}</td><td>${p.trades}</td><td>${p.tradesHold}</td></tr>`).join('');
+  const open = d.low || d.tradesHold < 10;
+  el.innerHTML = `<details ${open ? 'open' : ''} data-testid="diag">
+    <summary><b>設定檢查：${d.low ? '交易數偏少，是哪一關擋掉的？' : '訊號是怎麼變成交易的'}</b>
+      <span class="muted small">　訓練期 ${d.tradesTrain} 筆（門檻 ${d.minTrades}）／樣本外 ${d.tradesHold} 筆</span></summary>
+    <div class="tbl-wrap" style="margin-top:10px"><table class="tbl"><thead><tr><th class="txt">步驟（越往下越少）</th><th>訓練期</th><th>樣本外</th></tr></thead><tbody>${rows}</tbody></table></div>
+    <ul class="verdict-list" style="margin-top:10px">${d.tips.map((t) => `<li class="${t.level}">${esc(t.text)}</li>`).join('')}</ul>
+    <details style="margin-top:8px"><summary class="muted small">各幣種明細</summary>
+      <div class="tbl-wrap"><table class="tbl"><thead><tr><th>幣種</th><th>訓練期 K 線數</th><th>同時成立</th><th>進場訊號</th><th>訓練期交易</th><th>樣本外交易</th></tr></thead><tbody>${sym}</tbody></table></div></details>
+  </details>`;
+}
+
+export function renderSearchTips(tips) {
+  if (!tips.length) return '';
+  return `<div data-testid="search-tips" style="margin-top:8px"><b class="small">結果檢查</b><ul class="verdict-list" style="margin-top:6px">${tips.map((t) => `<li class="${t.level}">${esc(t.text)}</li>`).join('')}</ul></div>`;
+}
