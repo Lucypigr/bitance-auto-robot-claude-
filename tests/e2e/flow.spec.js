@@ -215,3 +215,38 @@ test('訓練／樣本外比例可改成 50/50，結果標題同步更新', async
   await page.locator('#tab-board').click();
   await expect(page.locator('#board')).toContainText('前 50%');
 });
+
+test('歷史漲幅榜：設定區間、計算、排序、前瞻提醒與快速選取', async ({ page }) => {
+  await page.goto('/index.html');
+  await expect(page.locator('#sym-list .sym-item').first()).toBeVisible();
+  await page.selectOption('#sym-sort', 'hist');
+  await expect(page.locator('#hist-box')).toBeVisible();
+  await expect(page.locator('#sym-list')).toContainText('請先設定區間');
+  await page.selectOption('#hist-end', '7'); await page.selectOption('#hist-win', '7'); await page.selectOption('#hist-top', '30');
+  await page.locator('#hist-go').click();
+  await expect(page.locator('#hist-status')).toContainText('榜單區間（UTC 日線）', { timeout: 30000 });
+  await expect(page.locator('#hist-status')).toContainText('事後挑出贏家'); // 回測 180 天包含 7 天前的區間
+  const nums = (await page.locator('#sym-list .sym-item .vol b').allTextContents()).map((t) => parseFloat(t));
+  expect(nums.length).toBeGreaterThan(5);
+  for (let i = 1; i < nums.length; i++) expect(nums[i - 1]).toBeGreaterThanOrEqual(nums[i]);
+  await page.locator('[data-preset="3"]').click();
+  await expect(page.locator('#sym-count')).toContainText('已選 3');
+  await page.selectOption('#days', '30');
+  await page.selectOption('#hist-end', '60');
+  await page.locator('#hist-go').click();
+  await expect(page.locator('#hist-status')).toContainText('前瞻', { timeout: 30000 });
+});
+
+test('設定檢查：交易數太少時自動展開並說明哪一關擋掉', async ({ page }) => {
+  await page.goto('/index.html');
+  await page.locator('#tab-manual').click();
+  await page.selectOption('#m-template', 'mtf');
+  await page.selectOption('#days', '30');
+  await page.locator('#btn-manual').click();
+  const diag = page.getByTestId('diag');
+  await expect(diag).toBeVisible({ timeout: 90000 });
+  await expect(diag).toHaveAttribute('open', '');
+  await expect(diag).toContainText('全部條件「同時成立」');
+  await expect(diag).toContainText('實際成交的交易數');
+  await expect(diag.locator('.verdict-list li').first()).toBeVisible();
+});

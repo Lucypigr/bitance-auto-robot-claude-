@@ -13,8 +13,38 @@ const PATHS = {
 
 /** 幣種排序：volume＝24h 成交額、gain＝24h 漲幅由高到低、loss＝24h 跌幅由大到小 */
 export function sortSymbols(list, mode = 'volume') {
+  if (mode === 'hist' || mode === 'histloss') {
+    const sign = mode === 'hist' ? -1 : 1;
+    const key = (s) => (Number.isFinite(s.histRet) ? sign * s.histRet : Infinity);
+    return list.slice().sort((a, b) => key(a) - key(b) || b.quoteVolume - a.quoteVolume);
+  }
   const key = mode === 'gain' ? (s) => -(s.change24h || 0) : mode === 'loss' ? (s) => s.change24h || 0 : (s) => -s.quoteVolume;
   return list.slice().sort((a, b) => key(a) - key(b) || b.quoteVolume - a.quoteVolume);
+}
+
+/**
+ * 歷史漲幅榜：某段「過去的」區間內的漲跌幅。
+ * 區間 = [結束日 − windowDays 天, 結束日)，結束日 = 今天 UTC 00:00 往前推 endDaysAgo 天（endDaysAgo=0 即到昨天收盤）。
+ * rows 是日線 {t,o,c}（已收盤）；區間內的日線必須完整，否則回傳 null（上市太晚或資料缺漏）。
+ */
+export function windowReturn(rows, endBoundary, windowDays) {
+  const start = endBoundary - windowDays * DAY;
+  let first = -1;
+  let last = -1;
+  let n = 0;
+  for (let i = 0; i < rows.t.length; i++) {
+    if (rows.t[i] < start || rows.t[i] + DAY > endBoundary) continue;
+    if (first < 0) first = i;
+    last = i;
+    n++;
+  }
+  if (n !== windowDays || rows.t[first] !== start || !(rows.o[first] > 0)) return null;
+  return rows.c[last] / rows.o[first] - 1;
+}
+
+export function historyWindow(now, endDaysAgo, windowDays) {
+  const end = alignDown(now, DAY) - endDaysAgo * DAY;
+  return { start: end - windowDays * DAY, end };
 }
 
 export class BinanceError extends Error {
@@ -132,6 +162,25 @@ export class BinanceClient {
       if (page.length < P.limit || cursor > endTime) break;
     }
     return parseKlines(rows, now, kind);
+  }
+
+  /** 掃描 symbols，回傳 Map(symbol → 區間漲跌幅)。只用區間結束前已收盤的日線。 */
+  async historicalGainers(market, symbols, { endDaysAgo, windowDays, now = Date.now(), signal, onProgress }) {
+    const { start, end } = historyWindow(now, endDaysAgo, windowDays);
+    const out = new Map();
+    let done = 0;
+    await Promise.all(symbols.map(async (sym) => {
+      try {
+        const rows = await this.klines(market, sym, '1d', start, end - 1, { signal, now });
+        const r = windowReturn(rows, end, windowDays);
+        if (r !== null) out.set(sym, r);
+      } catch (e) {
+        if (e.kind === 'abort') throw e;
+      }
+      done++;
+      if (onProgress) onProgress({ done, total: symbols.length });
+    }));
+    return { returns: out, start, end };
   }
 
   async funding(symbol, startTime, endTime, { signal } = {}) {

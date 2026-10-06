@@ -64,7 +64,21 @@
             <option value="volume" selected>24h 成交額</option>
             <option value="gain">24h 漲幅榜（高→低）</option>
             <option value="loss">24h 跌幅榜（大→小）</option>
+            <option value="hist">歷史漲幅榜（幾天前的區間）</option>
+            <option value="histloss">歷史跌幅榜（幾天前的區間）</option>
           </select></label>
+        <div id="hist-box" class="note info" hidden>
+          <div class="grid2">
+            <div class="field"><label class="label" for="hist-end">區間結束於</label>
+              <select id="hist-end"><option value="0">昨天收盤（0 天前）</option><option value="1">1 天前</option><option value="3">3 天前</option><option value="7" selected>7 天前</option><option value="14">14 天前</option><option value="30">30 天前</option><option value="60">60 天前</option><option value="90">90 天前</option></select></div>
+            <div class="field"><label class="label" for="hist-win">區間長度</label>
+              <select id="hist-win"><option value="1">1 天</option><option value="3">3 天</option><option value="7" selected>7 天</option><option value="14">14 天</option><option value="30">30 天</option></select></div>
+            <div class="field"><label class="label" for="hist-top">掃描範圍</label>
+              <select id="hist-top"><option value="30">成交額前 30</option><option value="60">前 60</option><option value="100" selected>前 100</option><option value="200">前 200</option></select></div>
+            <div class="field" style="align-self:end"><button type="button" class="btn small primary block" id="hist-go">計算榜單</button></div>
+          </div>
+          <div id="hist-status" class="small"></div>
+        </div>
         <input id="sym-search" type="search" placeholder="搜尋幣種，例如 BTC、SOL…" autocomplete="off" aria-label="搜尋幣種">
         <div id="sym-list" class="sym-list" role="listbox" aria-label="幣種清單"></div>
         <div class="row gap wrap">
@@ -240,6 +254,7 @@
       <div id="r-champions" class="champions" hidden></div>
       <div id="r-verdict" class="card"></div>
       <div id="r-compare" class="card"></div>
+      <div id="r-diag" class="card"></div>
       <div class="card charts">
         <div class="tabs" role="tablist" id="chart-tabs">
           <button type="button" class="tab active" role="tab" data-ctab="candles" aria-selected="true">K 線圖</button>
