@@ -54,7 +54,7 @@ function saveSettings() {
     localStorage.setItem(LS, JSON.stringify({
       market: state.market, symbols: state.symbols, baseTf: state.baseTf, days: state.days,
       theme: document.documentElement.dataset.theme, colors: document.documentElement.dataset.colors,
-      costs: readCosts(true),
+      costs: readCosts(true), trainPct: $('train-pct').value,
     }));
   } catch { /* 無痕模式等情況，忽略 */ }
 }
@@ -221,6 +221,11 @@ function readChecks(name) {
   return [...document.querySelectorAll(`input[name="${name}"]:checked`)].map((i) => Number(i.value) || i.value);
 }
 
+function readTrainFrac() {
+  const v = Number($('train-pct').value);
+  return v >= 50 && v <= 80 ? v / 100 : 0.7;
+}
+
 function readSearchConfig() {
   const unit = $('s-unit').value;
   const parse = (id) => [...new Set($(id).value.split(/[,，\s]+/).map(Number).filter((x) => Number.isFinite(x) && x > 0))];
@@ -235,7 +240,7 @@ function readSearchConfig() {
   const pool = readChecks('s-pool');
   if (!pool.length) throw new Error('指標池至少要勾選一個條件');
   const cfg = {
-    pool, unit, posUsdt,
+    pool, unit, posUsdt, trainFrac: readTrainFrac(),
     direction: state.market === 'spot' ? 'long' : $('s-dir').value,
     maxConditions: Number($('s-maxc').value), budget: Number($('s-budget').value),
     tfs, minTrades, slList: sl, tpList: tp, levList: state.market === 'spot' ? [1] : (lev.length ? lev : [1]),
@@ -351,7 +356,7 @@ async function runManual() {
     const d = await ensureData(neededTfs([st]));
     const costs = readCosts();
     const strategy = { ...st };
-    const res = await compute.backtest(strategy, costs);
+    const res = await compute.backtest(strategy, costs, readTrainFrac());
     state.searchResult = null;
     showDetail({ res, strategy, title: '手動策略回測', costs });
   } catch (e) {
@@ -453,7 +458,7 @@ async function openCandidate(id) {
     state.abort = new AbortController();
     setBusy(true, false);
     try {
-      const res = await compute.backtest(e.strategy, readCosts());
+      const res = await compute.backtest(e.strategy, readCosts(), state.searchResult.config.trainFrac);
       d = { ...res, strategy: e.strategy };
       state.detailCache.set(id, d);
     } catch (err) { showError(err.message); return; } finally { setBusy(false); }
@@ -535,6 +540,7 @@ function bind() {
     renderSymbols(); updateDataWarn(); saveSettings();
   }));
   $('base-tf').addEventListener('change', (e) => setBaseTf(e.target.value));
+  $('train-pct').addEventListener('change', saveSettings);
   $('days').addEventListener('change', (e) => { state.days = Number(e.target.value); updateDataWarn(); saveSettings(); });
   for (const id of ['capital', 'posPct', 'feePct', 'slipPct', 'mmrPct']) $(id).addEventListener('change', saveSettings);
 
@@ -618,6 +624,7 @@ async function init() {
     $('capital').value = s.costs.capital ?? 10000; $('posPct').value = s.costs.posPct ?? 100;
     $('feePct').value = s.costs.feePct ?? 0.05; $('slipPct').value = s.costs.slipPct ?? 0.05; $('mmrPct').value = s.costs.mmrPct ?? 0.5;
   }
+  if (s.trainPct && [...$('train-pct').options].some((o) => o.value === String(s.trainPct))) $('train-pct').value = String(s.trainPct);
   if (s.symbols && s.symbols.length) state.symbols = s.symbols.slice(0, MAX_SYMBOLS);
   if (s.baseTf && TIMEFRAMES.includes(s.baseTf)) state.baseTf = s.baseTf;
   if (s.days) state.days = s.days;
