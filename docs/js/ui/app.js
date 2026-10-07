@@ -451,7 +451,7 @@ function showSearchResult(result, costs) {
     const d = state.detailCache.get(first);
     showDetail({ res: d, strategy: d.strategy, title: null, costs, keepHead: true, candidateId: first });
   } else {
-    $('r-verdict').hidden = true; $('r-compare').hidden = true; $('r-diag').hidden = true;
+    $('r-verdict').hidden = true; $('r-compare').hidden = true; $('r-diag').hidden = true; $('r-symbols').hidden = true;
     document.querySelector('.card.charts').hidden = false;
     state.view = null;
     selectChartTab('board');
@@ -479,6 +479,8 @@ function showDetail({ res, strategy, title, costs, keepHead, candidateId }) {
   document.querySelector('.card.charts').hidden = false;
   R.renderVerdict($('r-verdict'), res);
   R.renderCompare($('r-compare'), res, ds);
+  $('r-symbols').hidden = false;
+  R.renderSymbolBreakdown($('r-symbols'), res, costs.capital);
   const minT = state.searchResult ? state.searchResult.config.minTrades : 20;
   R.renderDiagnosis($('r-diag'), diagnoseStrategy(state.data.sig, strategy, res.ranges, res, { minTrades: minT, costs }));
   const sel = $('c-symbol');

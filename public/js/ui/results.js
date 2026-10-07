@@ -5,6 +5,7 @@ import { candleChart, lineChart, toChartTime, cssVar } from './charts.js';
 import * as I from '../core/indicators.js';
 import { CONDITIONS, describeSpec, specKey } from '../core/conditions.js';
 import { risingEdges } from '../core/signals.js';
+import { symbolBreakdown } from '../core/breakdown.js';
 
 const REASON = { tp: '停利', sl: '停損', trail: '移動停損', liq: '清算', signal: '出場訊號', time: '持倉期滿', end: '區間結束' };
 const pfText = (pf) => (Number.isFinite(pf) ? fmtNum(pf) : pf > 0 ? '∞' : '—');
@@ -383,4 +384,21 @@ export function renderDiagnosis(el, d) {
 export function renderSearchTips(tips) {
   if (!tips.length) return '';
   return `<div data-testid="search-tips" style="margin-top:8px"><b class="small">結果檢查</b><ul class="verdict-list" style="margin-top:6px">${tips.map((t) => `<li class="${t.level}">${esc(t.text)}</li>`).join('')}</ul></div>`;
+}
+
+// ---------------- 各幣種損益 ----------------
+export function renderSymbolBreakdown(el, res, capital) {
+  const tr = symbolBreakdown(res.train, capital);
+  const oo = symbolBreakdown(res.holdout, capital);
+  const rows = tr.rows.map((r, i) => ({ tr: r, oo: oo.rows[i] })).sort((a, b) => b.tr.pnl - a.tr.pnl);
+  const cell = (r) => `<td class="${signClass(r.pnl)}">${fmtMoney(r.pnl, 2, true)}</td><td class="${signClass(r.ret)}">${fmtPct(r.ret, 1, true)}</td><td>${r.trades}</td><td>${r.winRate === null ? '—' : fmtPct(r.winRate, 0)}</td>`;
+  const body = rows.map(({ tr: a, oo: b }) => `<tr><td><b>${esc(a.symbol)}</b>${a.liquidations + b.liquidations ? ' <span class="badge bad">清算</span>' : ''}</td>${cell(a)}${cell(b)}</tr>`).join('');
+  const tot = (s, t) => `<td class="${signClass(s.totalPnl)}"><b>${fmtMoney(s.totalPnl, 2, true)}</b></td><td class="${signClass(s.totalPnl)}"><b>${fmtPct(s.totalPnl / capital, 1, true)}</b></td><td><b>${t.trades}</b></td><td>${t.trades ? fmtPct(t.winRate, 0) : '—'}</td>`;
+  el.innerHTML = `<h2>各幣種損益</h2>
+    <div class="muted small" style="margin-bottom:8px">上面「淨報酬」是所有幣種<b>加總</b>的結果。下表拆開來看每個幣種賺賠多少（USDT）。每個幣種的報酬率是以它自己分到的資金（${term('capital_split', '總資金 ÷ 幣種數')} ＝ ${fmtMoney(tr.sleeve, 2)} USDT）計算。</div>
+    <div class="tbl-wrap"><table class="tbl" data-testid="symbols"><thead>
+      <tr><th rowspan="2">幣種</th><th colspan="4" class="col-train" style="text-align:center">訓練期</th><th colspan="4" class="col-oos" style="text-align:center">樣本外</th></tr>
+      <tr><th>淨損益</th><th>報酬率</th><th>交易</th><th>勝率</th><th>淨損益</th><th>報酬率</th><th>交易</th><th>勝率</th></tr></thead>
+      <tbody>${body}<tr class="hl"><td><b>合計（＝總成績）</b></td>${tot(tr, res.train.metrics)}${tot(oo, res.holdout.metrics)}</tr></tbody></table></div>
+    <div class="muted small">按「逐筆交易」分頁可以看到每一筆；也能用幣種篩選。</div>`;
 }
