@@ -228,3 +228,34 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; font-vari
   .topbar { padding: 8px 12px; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+
+/* 指標示意圖 */
+svg.ill { display: block; width: 100%; height: auto; background: var(--panel-2); border-radius: 8px; }
+svg.ill .k-up line, svg.ill .k-up rect { stroke: var(--up); fill: var(--up); stroke-width: 1.2; }
+svg.ill .k-dn line, svg.ill .k-dn rect { stroke: var(--down); fill: var(--down); stroke-width: 1.2; }
+svg.ill .k-up line, svg.ill .k-dn line { fill: none; }
+svg.ill .k-hl { fill: none; stroke: var(--accent); stroke-width: 1.4; stroke-dasharray: 3 2; }
+svg.ill .ln { fill: none; stroke-width: 1.7; stroke-linejoin: round; stroke-linecap: round; }
+svg.ill .l-a { stroke: #4c82ff; }
+svg.ill .l-b { stroke: #f59e0b; }
+svg.ill .l-c { stroke: #a855f7; }
+svg.ill .l-up { stroke: var(--up); }
+svg.ill .l-dn { stroke: var(--down); }
+svg.ill .dashed, svg.ill .dash { stroke-dasharray: 3 3; }
+svg.ill .dash { stroke: var(--muted); stroke-width: 1; opacity: .8; }
+svg.ill .dash.l-c { stroke: #a855f7; opacity: 1; }
+svg.ill .sep { stroke: var(--border); stroke-width: 1; }
+svg.ill .zone-hot { fill: var(--down); opacity: .16; }
+svg.ill .zone-cold { fill: #4c82ff; opacity: .16; }
+svg.ill .mk { fill: none; stroke: var(--accent); stroke-width: 2; }
+svg.ill .tx { font-size: 8px; fill: var(--muted); font-family: inherit; }
+svg.ill .tx.b { fill: #f59e0b; }
+svg.ill .tx.a { fill: #4c82ff; }
+svg.ill .bar { opacity: .75; }
+svg.ill .vbar { fill: var(--muted); opacity: .55; }
+svg.ill .vbar.hot { fill: var(--accent); opacity: 1; }
+.pop-illus { margin: 6px 0 8px; }
+.pop-illus figcaption { font-size: 12px; color: var(--muted); margin-top: 4px; }
+.cond-text { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.cond-thumb { order: 2; flex: 0 0 96px; width: 96px; }
+.pool-item { display: inline-flex; align-items: center; gap: 0; margin-right: 6px; }

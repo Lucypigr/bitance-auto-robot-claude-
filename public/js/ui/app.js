@@ -246,7 +246,7 @@ function renderSearchPane() {
 function renderPool() {
   const sel = new Set(state.search.pool);
   $('s-pool').innerHTML = conditionGroups().map((g) => `<div class="field"><div class="label">${term(CONDITIONS[g.items[0].id].term.startsWith('pat_') ? 'pat_hammer' : CONDITIONS[g.items[0].id].term, g.group)}</div>
-    <div class="checks">${g.items.map((it) => `<label class="check"><input type="checkbox" name="s-pool" value="${it.id}" ${sel.has(it.id) ? 'checked' : ''}> ${esc(it.label)}</label>`).join('')}</div></div>`).join('');
+    <div class="checks">${g.items.map((it) => `<span class="pool-item"><label class="check"><input type="checkbox" name="s-pool" value="${it.id}" ${sel.has(it.id) ? 'checked' : ''}> ${esc(it.label)}</label><button type="button" class="ibtn" data-term="${esc(CONDITIONS[it.id].term)}" data-ill="${it.id}" aria-label="說明與示意圖：${esc(it.label)}">ⓘ</button></span>`).join('')}</div></div>`).join('');
   $('pool-count').textContent = `已選 ${sel.size} 個條件`;
   decorate($('pool-adv'));
 }

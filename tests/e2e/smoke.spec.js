@@ -42,3 +42,30 @@ test('主要專有名詞都有 ⓘ（RSI、超買、超賣、PF、Sharpe、回�
     expect(terms, `缺少 ${t}`).toContain(t);
   }
 });
+
+test('ⓘ 說明含指標／K 線型態的示意圖；手動條件列與指標池也看得到', async ({ page }) => {
+  await page.goto('/index.html');
+  await page.locator('#tab-manual').click();
+  await page.selectOption('#m-template', 'mtf');
+  // 條件列右側有縮圖
+  await expect(page.locator('#m-entry .cond-thumb svg')).toHaveCount(3);
+  // 流星線的 ⓘ：示意圖 + 說明
+  const star = page.locator('#m-entry button.ibtn[data-ill="pat_shooting_star"]');
+  await star.hover();
+  const pop = page.locator('#info-pop');
+  await expect(pop.locator('figure.pop-illus svg')).toBeVisible();
+  await expect(pop).toContainText('示意圖');
+  await expect(pop).toContainText('流星');
+  await page.mouse.move(5, 600);
+  // 指標池中的每個條件都有 ⓘ 與圖
+  await page.locator('#tab-search').click();
+  await page.locator('#pool-adv summary').click();
+  const hammer = page.locator('#s-pool button.ibtn[data-ill="pat_hammer"]');
+  await hammer.click();
+  await expect(pop.locator('figure.pop-illus svg')).toBeVisible();
+  await expect(page.locator('input[name="s-pool"][value="pat_hammer"]')).toBeChecked(); // 點 ⓘ 不會誤勾選
+  await page.keyboard.press('Escape');
+  const kd = page.locator('#s-pool button.ibtn[data-ill="kd_golden"]');
+  await kd.click();
+  await expect(pop.locator('figure.pop-illus svg')).toBeVisible();
+});
