@@ -1,6 +1,6 @@
 // 訊號引擎：把條件算成「執行週期時間軸上的訊號索引」，並做快取。
 import { IndicatorBundle, evalSpecOnSeries, alignToBase, indicesOf, specKey, normalizeSpec } from './conditions.js';
-import { intersectSorted, TF_MS } from './util.js';
+import { intersectSorted, TF_MS, timeAt } from './util.js';
 
 export class SignalEngine {
   constructor(ds) {
@@ -18,7 +18,7 @@ export class SignalEngine {
       const S = this.ds.symbols[si];
       const len = S.last - S.first + 1;
       const t = new Float64Array(len);
-      for (let i = 0; i < len; i++) t[i] = this.ds.t0 + (S.first + i) * this.ds.baseMs;
+      for (let i = 0; i < len; i++) t[i] = timeAt(this.ds, S.first + i);
       b = {
         t, o: S.o.subarray(S.first, S.last + 1), h: S.h.subarray(S.first, S.last + 1),
         l: S.l.subarray(S.first, S.last + 1), c: S.c.subarray(S.first, S.last + 1),

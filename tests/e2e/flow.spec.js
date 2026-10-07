@@ -265,3 +265,64 @@ test('各幣種損益：每個幣種一列，合計等於總成績', async ({ pa
   await expect(t).toContainText('合計（＝總成績）');
   await expect(page.locator('#r-symbols')).toContainText('加總');
 });
+
+test('台股（日線）：切換市場、選股、手動回測與自動搜尋', async ({ page }) => {
+  const errors = [];
+  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
+  await page.goto('/index.html');
+  await page.locator('[data-market="tw"]').click();
+  // 只有日線、只做多、新台幣
+  await expect(page.locator('#base-tf')).toHaveValue('1d');
+  await expect(page.locator('#base-tf option[value="1h"]')).toBeDisabled();
+  await expect(page.locator('[data-dir="short"]')).toBeDisabled();
+  await page.locator('#step1 details.adv summary').click();
+  await expect(page.locator('#tw-fields')).toBeVisible();
+  await expect(page.locator('#feePct')).toHaveValue('0.1425');
+  await expect(page.locator('#capital')).toHaveValue('1000000');
+  await expect(page.locator('label[for="capital"]')).toContainText('TWD');
+  await expect(page.locator('#sym-list')).toContainText('2330 台積電');
+  await expect(page.locator('#sym-selected')).toContainText('台積電');
+  await page.fill('#sym-search', '聯發');
+  await expect(page.locator('#sym-list .sym-item')).toHaveCount(1);
+  await page.fill('#sym-search', '');
+  // 手動回測
+  await page.locator('#tab-manual').click();
+  await page.selectOption('#m-template', 'oversold');
+  await page.fill('#m-sl', '5'); await page.fill('#m-tp', '8');
+  await page.locator('#btn-manual').click();
+  await expect(page.getByTestId('compare')).toBeVisible({ timeout: 60000 });
+  await expect(page.getByTestId('strategy-desc')).toContainText('做多');
+  await expect(page.locator('#r-title')).toContainText('台股（日線）');
+  await expect(page.locator('#r-title')).toContainText('證交稅');
+  await expect(page.getByTestId('symbols')).toContainText('2330 台積電');
+  await expect(page.locator('#r-symbols')).toContainText('TWD');
+  await expect(page.locator('#data-info')).toContainText('交易日');
+  await page.locator('[data-ctab="trades"]').click();
+  await expect(page.getByTestId('trades')).toContainText('淨損益 TWD');
+  const dates = await page.getByTestId('trades').locator('tbody tr td:nth-child(5)').allTextContents();
+  for (const d of dates.slice(0, 20)) { expect(d).toMatch(/^\d{4}-\d{2}-\d{2}$/); const dow = new Date(`${d}T00:00:00Z`).getUTCDay(); expect([0, 6]).not.toContain(dow); }
+  await page.locator('[data-ctab="candles"]').click();
+  await expect(page.locator('#candle-chart canvas').first()).toBeVisible();
+  // 自動搜尋
+  await page.locator('#tab-search').click();
+  await expect(page.locator('input[name="s-tf"]')).toHaveCount(1);
+  await page.selectOption('#s-budget', '30'); await page.fill('#s-min', '3');
+  await page.locator('#btn-search').click();
+  await expect(page.getByTestId('champ-netReturn')).toBeVisible({ timeout: 90000 });
+  // 切回加密貨幣：恢復預設
+  await page.locator('[data-market="perp"]').click();
+  await expect(page.locator('#base-tf option[value="1h"]')).toBeEnabled();
+  await expect(page.locator('#capital')).toHaveValue('10000');
+  expect(errors).toEqual([]);
+});
+
+test('台股：FinMind 額度用完時顯示清楚的錯誤', async ({ page, fakeTw }) => {
+  fakeTw.quota = 1; // 只夠取得股票清單
+  await page.goto('/index.html');
+  await page.locator('[data-market="tw"]').click();
+  await expect(page.locator('#sym-list')).toContainText('2330');
+  await page.locator('#tab-manual').click();
+  await page.selectOption('#m-template', 'oversold');
+  await page.locator('#btn-manual').click();
+  await expect(page.locator('#run-error')).toContainText('Token', { timeout: 60000 });
+});

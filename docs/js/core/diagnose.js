@@ -1,5 +1,5 @@
 // 「交易數太少？」設定檢查：把訊號一層一層拆開來看，找出是哪一關把交易擋掉了。
-import { lowerBound, TF_MS, tfIndex } from './util.js';
+import { lowerBound, TF_MS, tfIndex, spanMs } from './util.js';
 import { describeSpec, normalizeSpec, CONDITIONS } from './conditions.js';
 
 const countIn = (idx, range) => Math.max(0, lowerBound(idx, range.to - 1) - lowerBound(idx, range.from));
@@ -37,7 +37,7 @@ export function diagnoseStrategy(sig, strategy, ranges, res, { minTrades = 20, c
 
   const tips = [];
   const add = (level, text) => tips.push({ level, text });
-  const trainDays = ((ranges.train.to - ranges.train.from) * ds.baseMs) / 86400000;
+  const trainDays = spanMs(ds, ranges.train) / 86400000;
   const low = tradesTrain < minTrades;
 
   // 1) 條件本身
@@ -73,7 +73,8 @@ export function diagnoseStrategy(sig, strategy, ranges, res, { minTrades = 20, c
     const notional = strategy.posUsdt * L;
     const tpPct = strategy.tp ? (strategy.tp / notional) * 100 : 0;
     const slPct = strategy.sl ? (strategy.sl / notional) * 100 : 0;
-    if (tpPct) add(tpPct > 20 || tpPct < 0.2 ? 'warn' : 'info', `以 USDT 設定：投入 ${strategy.posUsdt}、槓桿 ${L}× → 名目價值 ${notional} USDT；停利 ${strategy.tp} USDT 相當於價格要走 ${tpPct.toFixed(2)}%，停損 ${strategy.sl || 0} USDT 相當於 ${slPct.toFixed(2)}%。${tpPct > 20 ? '停利要價格走很遠才會碰到，多半只會等到區間結束才平倉。' : tpPct < 0.2 ? '停利幅度小於來回交易成本，賺到的都被手續費吃掉。' : ''}`);
+    const C = strategy.cur || 'USDT';
+    if (tpPct) add(tpPct > 20 || tpPct < 0.2 ? 'warn' : 'info', `以 ${C} 設定：投入 ${strategy.posUsdt}、槓桿 ${L}× → 名目價值 ${notional} ${C}；停利 ${strategy.tp} ${C} 相當於價格要走 ${tpPct.toFixed(2)}%，停損 ${strategy.sl || 0} ${C} 相當於 ${slPct.toFixed(2)}%。${tpPct > 20 ? '停利要價格走很遠才會碰到，多半只會等到區間結束才平倉。' : tpPct < 0.2 ? '停利幅度小於來回交易成本，賺到的都被手續費吃掉。' : ''}`);
   } else {
     if (strategy.tp && cost && strategy.tp / 100 <= cost) add('warn', `停利 ${strategy.tp}% 小於等於來回手續費＋滑價（約 ${(cost * 100).toFixed(2)}%），就算停利成功也是賠錢。`);
     if (!strategy.sl && !strategy.tp && !strategy.trail && !(strategy.exit && strategy.exit.length) && !strategy.maxBars) add('warn', '沒有設定任何停損、停利或出場條件：一旦進場就會持有到資料結束，之後的訊號都會被略過，所以只會有 1 筆交易。');
@@ -103,7 +104,7 @@ export function diagnoseSearch(result, ds) {
   const under = cands.filter((c) => c.train.trades < min).length;
   const liq = cands.filter((c) => c.train.liquidations > 0).length;
   const maxTr = cands.reduce((m, c) => Math.max(m, c.train.trades), 0);
-  const days = ((result.ranges.train.to - result.ranges.train.from) * ds.baseMs) / 86400000;
+  const days = spanMs(ds, result.ranges.train) / 86400000;
   if (!cands.length) add('bad', '沒有產生任何候選：目前的指標池、條件週期與最低交易數組合下，找不到訊號足夠的條件。請放寬最低交易數、增加幣種／資料天數，或在指標池多勾幾個條件。');
   if (cands.length && under) add(under > cands.length / 2 ? 'warn' : 'info', `${cands.length} 組候選中，有 ${under} 組在訓練期的交易數不到 ${min} 筆（全部候選的最大交易數是 ${maxTr}），所以不能當冠軍。`);
   if (liq) add('info', `有 ${liq} 組在訓練期發生過清算，不能當冠軍；降低槓桿範圍可以減少。`);

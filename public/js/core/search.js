@@ -26,6 +26,7 @@ export const SEARCH_DEFAULTS = {
   trainFrac: 0.7,
   variantsPerSet: 3,
   unit: 'pct', // 停損停利單位：pct＝價格 %；usdt＝損益 USDT 金額（需搭配 posUsdt）
+  cur: 'USDT', // 金額單位（台股為 TWD）
   posUsdt: 0, // 每筆固定投入的保證金（USDT），0＝用資金比例
   pool: null, // 自訂指標池（條件 id 清單）；null = DEFAULT_POOL
 };
@@ -77,11 +78,11 @@ export function describeStrategy(st) {
   const dir = st.dir === 'long' ? '做多' : '做空';
   const cond = st.entry.map(describeSpec).join(' 且 ');
   const exits = [];
-  const u = st.unit === 'usdt' ? ' USDT' : '%';
+  const u = st.unit === 'usdt' ? ` ${st.cur || 'USDT'}` : '%';
   if (st.sl) exits.push(`停損 ${st.sl}${u}`);
   if (st.tp) exits.push(`停利 ${st.tp}${u}`);
   if (st.trail) exits.push(`移動停損 ${st.trail}%`);
-  const size = st.posUsdt ? `每筆 ${st.posUsdt} USDT｜` : '';
+  const size = st.posUsdt ? `每筆 ${st.posUsdt} ${st.cur || 'USDT'}｜` : '';
   return `${dir}｜${cond}｜${size}${exits.join('、') || '無停損停利'}｜${st.lev}×`;
 }
 
@@ -105,7 +106,7 @@ export function generateCandidates(sig, cfgIn, train) {
   const cfg = { ...SEARCH_DEFAULTS, ...cfgIn };
   const ds = sig.ds;
   const tfs = cfg.tfs && cfg.tfs.length ? cfg.tfs : [ds.baseTf];
-  const spot = ds.market === 'spot';
+  const spot = ds.market !== 'perp'; // 現貨與台股：只做多、無槓桿
   const dirs = spot ? ['long'] : cfg.direction === 'both' ? ['long', 'short'] : [cfg.direction];
   const levList = spot ? [1] : cfg.levList;
   const rng = makeRng(cfg.seed);
@@ -157,7 +158,7 @@ export function generateCandidates(sig, cfgIn, train) {
       for (let i = 0; i < sets.length && candidates.length < budget; i++) {
         const specs = sets[i];
         const combo = combos[(i * cfg.variantsPerSet + round + ci) % combos.length];
-        const st = { dir, entry: specs, exit: [], entryMode: cfg.entryMode, sl: combo.sl, tp: combo.tp, trail: 0, lev: combo.lev, unit: cfg.unit || 'pct', posUsdt: cfg.posUsdt || 0 };
+        const st = { dir, entry: specs, exit: [], entryMode: cfg.entryMode, sl: combo.sl, tp: combo.tp, trail: 0, lev: combo.lev, unit: cfg.unit || 'pct', posUsdt: cfg.posUsdt || 0, cur: cfg.cur || 'USDT' };
         const key = strategyKey(st);
         if (seenKeys.has(key)) continue;
         seenKeys.add(key);

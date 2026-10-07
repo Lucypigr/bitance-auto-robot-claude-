@@ -29,9 +29,14 @@ export function simulateSymbol(ds, S, entries, cfg, range, capital, eq) {
   const { o, h, l, c, mh, ml } = S;
   const baseMs = ds.baseMs;
   const t0 = ds.t0;
+  const T = (i) => (ds.times ? ds.times[i] : t0 + i * baseMs);
   const d = cfg.dir;
   const L = cfg.lev;
   const fee = cfg.fee;
+  const rateIn = cfg.feeIn ?? fee; // 買進（做多進場）費率
+  const rateOut = cfg.feeOut ?? fee; // 賣出（做多出場）費率；台股含證交稅（差額 = 稅）
+  const minFee = cfg.minFee || 0;
+  const lot = cfg.lot || 0;
   const slip = cfg.slippage;
   const mmr = cfg.mmr;
   const posPct = Math.min(1, Math.max(0.0001, cfg.posPct ?? 1));
@@ -62,14 +67,24 @@ export function simulateSymbol(ds, S, entries, cfg, range, capital, eq) {
 
     fillTo(k, W);
 
+    // 台股：開盤即漲停且鎖死（一價到底）→ 實際上買不到
+    if (cfg.limitLock && k > 0 && o[k] === h[k] && h[k] === l[k] && o[k] >= c[k - 1] * 1.095) { ei++; continue; }
+
     const entry = o[k] * (1 + d * slip); // 不利方向滑價（做多買得更貴、做空賣得更便宜）
     const Wb = W;
     // 每筆投入的保證金：固定 USDT 金額（最多不超過資金袋）或資金比例
     const base = cfg.posUsdt > 0 ? Math.min(cfg.posUsdt, Wb) : Wb * posPct;
-    const M = base / (1 + L * fee);
-    const notional = M * L;
-    const q = notional / entry;
-    const feeIn = notional * fee;
+    // 股數：永續／現貨可小數；台股以整股計。最低手續費不夠買時，扣掉後重算
+    const sizeQ = (b) => {
+      const raw = (b * L) / (1 + L * rateIn) / entry;
+      return lot > 0 ? Math.floor(raw / lot) * lot : raw;
+    };
+    let q = sizeQ(base);
+    if (q * entry / L + Math.max(minFee, q * entry * rateIn) > base + 1e-9) q = sizeQ(base - minFee);
+    if (!(q > 0)) { ei++; continue; } // 買不起一股
+    const notional = q * entry;
+    const M = notional / L;
+    const feeIn = Math.max(minFee, notional * rateIn);
     // 停損／停利可用價格 % 或 USDT 損益金額（金額 ÷ 名目價值 = 價格變動幅度，不含手續費）
     const slF = cfg.slUsdt > 0 ? cfg.slUsdt / notional : cfg.sl;
     const tpF = cfg.tpUsdt > 0 ? cfg.tpUsdt / notional : cfg.tp;
@@ -176,7 +191,7 @@ export function simulateSymbol(ds, S, entries, cfg, range, capital, eq) {
       net = -M - feeIn; // 逐倉：最多賠掉這筆保證金
     } else {
       gross = d * q * (exitPrice - entry);
-      feeOut = q * exitPrice * fee;
+      feeOut = Math.max(minFee, q * exitPrice * rateIn) + q * exitPrice * (rateOut - rateIn);
       net = gross - feeIn - feeOut + funding;
     }
     W = Wb + net;
@@ -185,7 +200,7 @@ export function simulateSymbol(ds, S, entries, cfg, range, capital, eq) {
 
     trades.push({
       dir: d, entryIdx: k, exitIdx, signalIdx: s,
-      entryTime: t0 + k * baseMs, exitTime: t0 + exitIdx * baseMs,
+      entryTime: T(k), exitTime: T(exitIdx),
       entryPrice: entry, exitPrice, qty: q, notional, margin: M, lev: L,
       fee: feeIn + feeOut, funding, gross, pnl: net, ret: net / Wb, equityBefore: Wb,
       reason, mae, mfe, liqDist, bars: exitIdx - k + 1,
