@@ -250,3 +250,18 @@ test('設定檢查：交易數太少時自動展開並說明哪一關擋掉', as
   await expect(diag).toContainText('實際成交的交易數');
   await expect(diag.locator('.verdict-list li').first()).toBeVisible();
 });
+
+test('各幣種損益：每個幣種一列，合計等於總成績', async ({ page }) => {
+  await page.goto('/index.html');
+  await page.locator('#tab-manual').click();
+  await page.selectOption('#m-template', 'overbought');
+  await page.selectOption('#days', '90');
+  await page.locator('#btn-manual').click();
+  const t = page.getByTestId('symbols');
+  await expect(t).toBeVisible({ timeout: 60000 });
+  await expect(t.locator('tbody tr')).toHaveCount(3); // 2 個幣種 + 合計
+  await expect(t).toContainText('BTCUSDT');
+  await expect(t).toContainText('ETHUSDT');
+  await expect(t).toContainText('合計（＝總成績）');
+  await expect(page.locator('#r-symbols')).toContainText('加總');
+});
