@@ -1,12 +1,13 @@
 import { initInfo, decorate, term, esc } from './info.js';
 import { BinanceClient, IdbStore, MemoryStore, loadMarketData, sortSymbols } from '../data/binance.js';
-import { buildDataset } from '../core/dataset.js';
+import { FinMindClient, loadTwData, twseQuotes } from '../data/finmind.js';
+import { buildDataset, buildTwDataset } from '../core/dataset.js';
 import { SignalEngine } from '../core/signals.js';
 import { normalizeSpec, describeSpec, conditionGroups, CONDITIONS } from '../core/conditions.js';
 import { describeStrategy, DEFAULT_POOL } from '../core/search.js';
-import { TIMEFRAMES, TF_LABEL, TF_MS, DAY, tfIndex } from '../core/util.js';
+import { TIMEFRAMES, TF_LABEL, TF_MS, DAY, tfIndex, timeAt } from '../core/util.js';
 import { ComputeClient } from './worker-client.js';
-import { refreshChartTheme, destroyAll, candleChart, toChartTime } from './charts.js';
+import { refreshChartTheme, destroyAll, candleChart, chartTime } from './charts.js';
 import { TEMPLATES, defaultCondition, renderConditionList, bindConditionList, describeManual } from './strategy-form.js';
 import * as R from './results.js';
 import { diagnoseStrategy, diagnoseSearch } from '../core/diagnose.js';
@@ -15,12 +16,13 @@ import { fmtMoney, fmtPct } from './format.js';
 const $ = (id) => document.getElementById(id);
 const MAX_SYMBOLS = 15;
 const FALLBACK_SYMBOLS = ['BTC', 'ETH', 'BNB', 'SOL', 'XRP', 'DOGE', 'ADA', 'AVAX', 'LINK', 'DOT', 'LTC', 'TRX', 'ATOM', 'NEAR', 'UNI'].map((b, i) => ({ symbol: `${b}USDT`, base: b, quoteVolume: 1e9 / (i + 1), change24h: 0 }));
+const TW_FALLBACK = [['2330', '台積電'], ['2317', '鴻海'], ['2454', '聯發科'], ['2881', '富邦金'], ['2412', '中華電'], ['0050', '元大台灣50'], ['00878', '國泰永續高股息']].map(([symbol, base]) => ({ symbol, base, quoteVolume: 0, change24h: 0, isEtf: /^00/.test(symbol) }));
 const MAX_DAYS = { '5m': 365, '15m': 730, '1h': 1095, '4h': 1095, '1d': 1095 };
 
 const state = {
   market: 'perp',
   symbols: ['BTCUSDT', 'ETHUSDT'],
-  allSymbols: { spot: null, perp: null },
+  allSymbols: { spot: null, perp: null, tw: null },
   baseTf: '1h',
   days: 180,
   useMark: true,
@@ -42,6 +44,13 @@ window.__bt = { state };
 
 const compute = new ComputeClient();
 const client = new BinanceClient();
+let fmToken = '';
+try { fmToken = localStorage.getItem('bt.fmtoken') || ''; } catch { /* ignore */ }
+const fmClient = new FinMindClient({ token: fmToken });
+const isTw = () => state.market === 'tw';
+const CUR = () => (isTw() ? 'TWD' : 'USDT');
+const TW_DEFAULTS = ['2330', '2317', '2454', '0050'];
+const marketName = () => (isTw() ? '台股（日線）' : state.market === 'perp' ? '永續合約' : '現貨');
 let store;
 try { store = typeof indexedDB !== 'undefined' ? new IdbStore() : new MemoryStore(); } catch { store = new MemoryStore(); }
 
@@ -63,9 +72,10 @@ function saveSettings() {
 // ---------------- 成本 ----------------
 function readCosts(raw = false) {
   const n = (id, d) => { const v = Number($(id).value); return Number.isFinite(v) ? v : d; };
-  const r = { capital: n('capital', 10000), posPct: n('posPct', 100), feePct: n('feePct', 0.05), slipPct: n('slipPct', 0.05), mmrPct: n('mmrPct', 0.5) };
+  const r = { capital: n('capital', 10000), posPct: n('posPct', 100), feePct: n('feePct', 0.05), slipPct: n('slipPct', 0.05), mmrPct: n('mmrPct', 0.5), taxPct: n('taxPct', 0.3), taxEtfPct: n('taxEtfPct', 0.1), minFee: n('minFee', 20) };
   if (raw) return r;
   return {
+    tax: Math.max(0, r.taxPct / 100), taxEtf: Math.max(0, r.taxEtfPct / 100), minFee: Math.max(0, r.minFee),
     capital: Math.max(100, r.capital), posPct: Math.min(1, Math.max(0.01, r.posPct / 100)),
     fee: Math.max(0, r.feePct / 100), slippage: Math.max(0, r.slipPct / 100), mmr: Math.max(0.001, r.mmrPct / 100),
   };
@@ -115,14 +125,25 @@ async function loadSymbolList(market) {
     const c = JSON.parse(sessionStorage.getItem(key) || 'null');
     if (c && Date.now() - c.t < 600e3) { state.allSymbols[market] = c.list; return c.list; }
   } catch { /* ignore */ }
-  $('sym-status').textContent = '正在從幣安取得幣種清單…';
+  $('sym-status').textContent = market === 'tw' ? '正在取得台股清單…' : '正在從幣安取得幣種清單…';
   try {
-    const list = await client.listSymbols(market);
+    let list;
+    if (market === 'tw') {
+      list = await fmClient.listStocks();
+      const q = await twseQuotes();
+      for (const s of list) { const x = q.get(s.symbol); if (x) { s.quoteVolume = x.turnover; s.change24h = x.change * 100; } }
+      list.sort((a, b) => b.quoteVolume - a.quoteVolume || (a.symbol < b.symbol ? -1 : 1));
+    } else list = await client.listSymbols(market);
     state.allSymbols[market] = list;
     try { sessionStorage.setItem(key, JSON.stringify({ t: Date.now(), list })); } catch { /* ignore */ }
-    $('sym-status').textContent = `共 ${list.length} 個 USDT ${market === 'perp' ? '永續合約' : '現貨'}交易對（依 24 小時成交額排序）`;
+    $('sym-status').textContent = market === 'tw' ? `共 ${list.length} 檔上市櫃股票與 ETF（排序與漲跌幅為最近一個交易日，只有上市股票有行情）` : `共 ${list.length} 個 USDT ${market === 'perp' ? '永續合約' : '現貨'}交易對（依 24 小時成交額排序）`;
     return list;
   } catch (e) {
+    if (market === 'tw') {
+      state.allSymbols[market] = TW_FALLBACK;
+      $('sym-status').innerHTML = `<span class="neg">無法取得台股清單：${esc(e.message)}</span>（已改用內建常用股票）`;
+      return TW_FALLBACK;
+    }
     state.allSymbols[market] = FALLBACK_SYMBOLS;
     $('sym-status').innerHTML = `<span class="neg">無法取得幣種清單：${esc(e.message)}</span>（已改用內建常用幣種；實際下載資料時若仍被拒絕，請換個網路環境）`;
     return FALLBACK_SYMBOLS;
@@ -170,9 +191,11 @@ function renderSymbols() {
   const list = sortedSymbols();
   const q = $('sym-search').value.trim().toUpperCase();
   const sel = new Set(state.symbols);
-  const filtered = (q ? list.filter((s) => s.symbol.includes(q)) : list).slice(0, 80);
-  $('sym-list').innerHTML = filtered.map((s) => `<button type="button" class="sym-item" role="option" aria-selected="${sel.has(s.symbol)}" data-sym="${s.symbol}"><span>${sel.has(s.symbol) ? '✓ ' : ''}${esc(s.base || symOf(s.symbol))}<span class="muted">/USDT</span></span><span class="vol">${(() => { const v = s.histRet !== undefined ? s.histRet * 100 : s.change24h; return v !== undefined ? `<b class="${v >= 0 ? 'pos' : 'neg'}">${v >= 0 ? '+' : ''}${v.toFixed(1)}%</b> ` : ''; })()}${s.quoteVolume ? '成交 ' + (s.quoteVolume / 1e6).toFixed(0) + 'M' : ''}</span></button>`).join('') || `<div class="muted small" style="padding:8px">${['hist', 'histloss'].includes($('sym-sort').value) && !list.length ? '請先設定區間並按「計算榜單」' : '找不到符合的幣種'}</div>`;
-  $('sym-selected').innerHTML = state.symbols.map((s) => `<span class="chip">${esc(symOf(s))}<button type="button" data-rm="${s}" aria-label="移除 ${esc(s)}">✕</button></span>`).join('');
+  const filtered = (q ? list.filter((s) => s.symbol.includes(q) || (s.base || '').toUpperCase().includes(q)) : list).slice(0, 80);
+  const tw = isTw();
+  const nameOf = (code) => { const f = (state.allSymbols[state.market] || []).find((x) => x.symbol === code); return tw && f ? `${code} ${f.base}` : symOf(code); };
+  $('sym-list').innerHTML = filtered.map((s) => `<button type="button" class="sym-item" role="option" aria-selected="${sel.has(s.symbol)}" data-sym="${s.symbol}"><span>${sel.has(s.symbol) ? '✓ ' : ''}${tw ? esc(s.symbol) + ' ' + esc(s.base) : esc(s.base || symOf(s.symbol)) + '<span class="muted">/USDT</span>'}</span><span class="vol">${(() => { const v = s.histRet !== undefined ? s.histRet * 100 : s.change24h; return v !== undefined ? `<b class="${v >= 0 ? 'pos' : 'neg'}">${v >= 0 ? '+' : ''}${v.toFixed(1)}%</b> ` : ''; })()}${s.quoteVolume ? (tw ? '成交 ' + (s.quoteVolume / 1e8).toFixed(1) + '億' : '成交 ' + (s.quoteVolume / 1e6).toFixed(0) + 'M') : ''}</span></button>`).join('') || `<div class="muted small" style="padding:8px">${['hist', 'histloss'].includes($('sym-sort').value) && !list.length ? '請先設定區間並按「計算榜單」' : '找不到符合的標的'}</div>`;
+  $('sym-selected').innerHTML = state.symbols.map((s) => `<span class="chip">${esc(nameOf(s))}<button type="button" data-rm="${s}" aria-label="移除 ${esc(s)}">✕</button></span>`).join('');
   $('sym-count').textContent = `（已選 ${state.symbols.length}／${MAX_SYMBOLS}）`;
 }
 
@@ -185,33 +208,55 @@ function toggleSymbol(sym) {
 }
 
 function setMarket(m, silent) {
+  const was = state.market;
   state.market = m;
   document.querySelectorAll('[data-market]').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.market === m)));
   const perp = m === 'perp';
+  const tw = m === 'tw';
   $('mmr-field').hidden = !perp; $('mark-field').hidden = !perp; $('s-lev-field').hidden = !perp;
+  $('tw-fields').hidden = !tw;
   $('m-lev').disabled = !perp;
   if (!perp) { state.manual.lev = 1; $('m-lev').value = 1; $('m-lev-out').textContent = '1×'; if (state.manual.dir === 'short') setDir('long'); }
   document.querySelector('[data-dir="short"]').disabled = !perp;
   $('s-dir').querySelector('option[value="short"]').disabled = !perp;
   $('s-dir').querySelector('option[value="both"]').disabled = !perp;
   if (!perp && $('s-dir').value !== 'long') $('s-dir').value = 'long';
-  if (!silent) { $('feePct').value = perp ? '0.05' : '0.1'; }
+  // 台股：只有日線；歷史漲幅榜（用加密貨幣日線）不適用
+  for (const o of $('base-tf').options) o.disabled = tw && o.value !== '1d';
+  for (const o of $('sym-sort').querySelectorAll('option[value="hist"], option[value="histloss"]')) o.disabled = tw;
+  $('sym-label').textContent = tw ? '股票／ETF' : '幣種';
+  $('sym-search').placeholder = tw ? '搜尋代號或名稱，例如 2330、台積電…' : '搜尋，例如 BTC、SOL…';
+  $('sym-sort').querySelector('option[value="volume"]').textContent = tw ? '最近交易日成交值' : '24h 成交額';
+  $('sym-sort').querySelector('option[value="gain"]').textContent = tw ? '最近交易日漲幅榜（高→低）' : '24h 漲幅榜（高→低）';
+  $('sym-sort').querySelector('option[value="loss"]').textContent = tw ? '最近交易日跌幅榜（大→小）' : '24h 跌幅榜（大→小）';
+  if (tw && ['hist', 'histloss'].includes($('sym-sort').value)) { $('sym-sort').value = 'volume'; $('hist-box').hidden = true; }
+  if (tw) {
+    setBaseTf('1d');
+    if (was !== 'tw') { state.days = 730; $('days').value = '730'; }
+    if (!silent) { $('feePct').value = '0.1425'; if (Number($('capital').value) === 10000) $('capital').value = '1000000'; }
+  } else {
+    if (was === 'tw') { if (state.baseTf === '1d') setBaseTf('1h'); if (Number($('capital').value) === 1000000) $('capital').value = '10000'; }
+    if (!silent) { $('feePct').value = perp ? '0.05' : '0.1'; }
+  }
+  document.querySelectorAll('[data-cur]').forEach((el) => { el.textContent = el.dataset.cur.replace('{C}', CUR()); });
   loadSymbolList(m).then((list) => {
     const have = new Set(list.map((s) => s.symbol));
     state.symbols = state.symbols.filter((s) => have.has(s));
-    if (!state.symbols.length) state.symbols = ['BTCUSDT', 'ETHUSDT'].filter((s) => have.has(s));
+    if (!state.symbols.length) state.symbols = (tw ? TW_DEFAULTS : ['BTCUSDT', 'ETHUSDT']).filter((s) => have.has(s));
     renderSymbols(); updateDataWarn();
   });
+  renderSymbols();
   saveSettings();
 }
 
 function updateDataWarn() {
-  const bars = (state.days * DAY) / TF_MS[state.baseTf];
+  const bars = isTw() ? state.days * 0.69 : (state.days * DAY) / TF_MS[state.baseTf];
   const total = bars * state.symbols.length;
   const w = $('data-warn');
   const msgs = [];
   if (total > 1.2e6) msgs.push(`預計載入約 ${(total / 1e4).toFixed(0)} 萬根 K 線（${state.symbols.length} 個幣種 × ${Math.round(bars).toLocaleString()} 根），下載與運算會比較久。`);
-  if (!state.symbols.length) msgs.push('請至少選擇 1 個幣種。');
+  if (!state.symbols.length) msgs.push(isTw() ? '請至少選擇 1 檔股票。' : '請至少選擇 1 個幣種。');
+  if (isTw() && state.days < 365) msgs.push('台股只有日線，資料天數太短時交易筆數會很少；建議至少近 1 年（最好 2～3 年）。');
   w.hidden = msgs.length === 0;
   w.textContent = msgs.join(' ');
 }
@@ -274,7 +319,7 @@ function readSearchConfig() {
   const pool = readChecks('s-pool');
   if (!pool.length) throw new Error('指標池至少要勾選一個條件');
   const cfg = {
-    pool, unit, posUsdt, trainFrac: readTrainFrac(),
+    pool, unit, posUsdt, trainFrac: readTrainFrac(), cur: CUR(),
     direction: state.market === 'spot' ? 'long' : $('s-dir').value,
     maxConditions: Number($('s-maxc').value), budget: Number($('s-budget').value),
     tfs, minTrades, slList: sl, tpList: tp, levList: state.market === 'spot' ? [1] : (lev.length ? lev : [1]),
@@ -305,7 +350,7 @@ function readManualStrategy(soft = false) {
   m.lev = state.market === 'spot' ? 1 : Number($('m-lev').value) || 1;
   m.entryMode = $('m-entrymode').value;
   const fix = (c) => { const n = normalizeSpec(c); if (tfIndex(n.tf) < tfIndex(state.baseTf)) n.tf = state.baseTf; return n; };
-  const st = { dir: m.dir, entry: m.entry.map(fix), exit: m.exit.map(fix), entryMode: m.entryMode, lev: m.lev, unit: m.unit, posUsdt: m.posUsdt, sl: m.sl, tp: m.tp, trail: m.trail, maxBars: m.maxBars };
+  const st = { dir: m.dir, entry: m.entry.map(fix), exit: m.exit.map(fix), entryMode: m.entryMode, lev: m.lev, cur: CUR(), unit: m.unit, posUsdt: m.posUsdt, sl: m.sl, tp: m.tp, trail: m.trail, maxBars: m.maxBars };
   if (!soft && !st.entry.length) throw new Error('請至少新增一個進場條件');
   if (!soft && st.unit === 'usdt' && !(st.posUsdt > 0)) throw new Error('USDT 模式需要填寫「每筆投入」金額（例如 6）');
   return st;
@@ -339,26 +384,41 @@ function neededTfs(strategyList) {
 }
 
 async function ensureData(tfSet) {
-  if (!state.symbols.length) throw new Error('請至少選擇 1 個幣種');
+  if (!state.symbols.length) throw new Error(isTw() ? '請至少選擇 1 檔股票' : '請至少選擇 1 個幣種');
   const key = JSON.stringify([state.market, [...state.symbols].sort(), state.baseTf, state.days, state.market === 'perp' && $('useMark').checked]);
   if (state.data && state.data.key === key && [...tfSet].every((t) => state.data.tfs.has(t))) return state.data;
   const tfs = new Set([...(state.data && state.data.key === key ? state.data.tfs : []), ...tfSet]);
   const prog = $('load-progress');
   setProgress(prog, 0, 1, '正在下載 K 線…');
-  const raw = await loadMarketData(client, store, {
-    market: state.market, symbols: state.symbols, baseTf: state.baseTf, tfs: [...tfs], days: state.days,
-    useMark: $('useMark').checked, signal: state.abort && state.abort.signal,
-    onProgress: (p) => setProgress(prog, p.done, p.total, `下載中 ${p.done}／${p.total}　${p.label || ''}`),
-  });
-  setProgress(prog, 1, 1, '整理資料中…');
-  const ds = buildDataset({ market: state.market, baseTf: state.baseTf, windowStart: raw.windowStart, endTime: raw.endTime, symbols: raw.symbols });
-  ds.warnings.push(...raw.warnings);
+  let ds;
+  if (isTw()) {
+    const list = state.allSymbols.tw || [];
+    const raw = await loadTwData(fmClient, store, {
+      symbols: state.symbols.map((code) => { const f = list.find((x) => x.symbol === code); return { symbol: code, name: f ? f.base : '', isEtf: f ? f.isEtf : /^00/.test(code) }; }),
+      days: state.days, signal: state.abort && state.abort.signal,
+      onProgress: (p) => setProgress(prog, p.done, p.total, `下載中 ${p.done}／${p.total}　${p.label || ''}`),
+    });
+    setProgress(prog, 1, 1, '整理資料中…');
+    ds = buildTwDataset({ windowStart: raw.windowStart, symbols: raw.symbols });
+    ds.warnings.push(...raw.warnings);
+  } else {
+    const raw = await loadMarketData(client, store, {
+      market: state.market, symbols: state.symbols, baseTf: state.baseTf, tfs: [...tfs], days: state.days,
+      useMark: $('useMark').checked, signal: state.abort && state.abort.signal,
+      onProgress: (p) => setProgress(prog, p.done, p.total, `下載中 ${p.done}／${p.total}　${p.label || ''}`),
+    });
+    setProgress(prog, 1, 1, '整理資料中…');
+    ds = buildDataset({ market: state.market, baseTf: state.baseTf, windowStart: raw.windowStart, endTime: raw.endTime, symbols: raw.symbols });
+    ds.warnings.push(...raw.warnings);
+  }
   await compute.setDataset(ds);
   prog.hidden = true;
   state.data = { key, tfs, ds, sig: new SignalEngine(ds) };
   state.detailCache.clear();
   const bars = ds.n - ds.windowStartIdx;
-  $('data-info').innerHTML = `已載入 <b>${ds.symbols.length}</b> 個幣種 × <b>${bars.toLocaleString()}</b> 根 ${TF_LABEL[state.baseTf]} K 線` +
+  $('data-info').innerHTML = (isTw()
+    ? `已載入 <b>${ds.symbols.length}</b> 檔 × <b>${bars.toLocaleString()}</b> 個交易日（還原股價，另含約 300 個交易日暖機）`
+    : `已載入 <b>${ds.symbols.length}</b> 個幣種 × <b>${bars.toLocaleString()}</b> 根 ${TF_LABEL[state.baseTf]} K 線`) +
     (ds.warnings.length ? `<br><span class="neg">${ds.warnings.map(esc).join('<br>')}</span>` : '');
   showPreview(ds);
   return state.data;
@@ -370,13 +430,14 @@ function showPreview(ds) {
   const el = $('preview-chart');
   el.hidden = false;
   const candles = [];
-  for (let i = Math.max(ds.windowStartIdx, S.first); i <= S.last; i++) candles.push({ time: toChartTime(ds.t0 + i * ds.baseMs), open: S.o[i], high: S.h[i], low: S.l[i], close: S.c[i] });
+  for (let i = Math.max(ds.windowStartIdx, S.first); i <= S.last; i++) candles.push({ time: chartTime(ds, timeAt(ds, i)), open: S.o[i], high: S.h[i], low: S.l[i], close: S.c[i] });
   destroyAll();
   candleChart(el, { candles });
 }
 
 // ---------------- 執行 ----------------
 function costsNote(c) {
+  if (isTw()) return `買進手續費 ${(c.fee * 100).toFixed(4)}%、賣出手續費＋證交稅 ${((c.fee + c.tax) * 100).toFixed(4)}%（ETF ${((c.fee + c.taxEtf) * 100).toFixed(4)}%）、最低手續費 ${c.minFee}、滑價 ${(c.slippage * 100).toFixed(3)}%`;
   return `手續費 ${(c.fee * 100).toFixed(3)}%／滑價 ${(c.slippage * 100).toFixed(3)}%（單邊）`;
 }
 
@@ -468,7 +529,7 @@ function showDetail({ res, strategy, title, costs, keepHead, candidateId }) {
   if (!keepHead) {
     $('r-champions').hidden = true; $('tab-board').hidden = true;
     $('r-title').innerHTML = `<div><h2>${esc(title)}</h2><div class="strategy" data-testid="strategy-desc">${esc(describeStrategy({ ...strategy, sl: strategy.sl, tp: strategy.tp }))}</div>
-      <div class="muted small">${costsNote(costs)}　${state.market === 'perp' ? '永續合約' : '現貨'}　${ds.symbols.length} 個幣種　執行週期 ${TF_LABEL[ds.baseTf]}</div></div>`;
+      <div class="muted small">${costsNote(costs)}　${marketName()}　${ds.symbols.length} ${isTw() ? '檔' : '個幣種'}　執行週期 ${TF_LABEL[ds.baseTf]}</div></div>`;
   } else {
     const e = state.searchResult.candidates.find((c) => c.id === candidateId);
     $('r-title').querySelector('div').insertAdjacentHTML('beforeend', `<div class="note info" data-testid="detail-head">目前顯示的完整回測：<b>${esc(e.desc)}</b></div>`);
@@ -480,11 +541,11 @@ function showDetail({ res, strategy, title, costs, keepHead, candidateId }) {
   R.renderVerdict($('r-verdict'), res);
   R.renderCompare($('r-compare'), res, ds);
   $('r-symbols').hidden = false;
-  R.renderSymbolBreakdown($('r-symbols'), res, costs.capital);
+  R.renderSymbolBreakdown($('r-symbols'), res, costs.capital, state.data.ds);
   const minT = state.searchResult ? state.searchResult.config.minTrades : 20;
-  R.renderDiagnosis($('r-diag'), diagnoseStrategy(state.data.sig, strategy, res.ranges, res, { minTrades: minT, costs }));
+  R.renderDiagnosis($('r-diag'), diagnoseStrategy(state.data.sig, strategy, res.ranges, res, { minTrades: minT, costs }), state.data.ds);
   const sel = $('c-symbol');
-  sel.innerHTML = ds.symbols.map((s, i) => `<option value="${i}">${esc(s.symbol)}</option>`).join('');
+  sel.innerHTML = ds.symbols.map((s, i) => `<option value="${i}">${esc(s.name ? s.symbol + ' ' + s.name : s.symbol)}</option>`).join('');
   decorate($('result-body'));
   selectChartTab(state.ctab === 'board' && !state.searchResult ? 'candles' : state.ctab);
 }
@@ -588,6 +649,11 @@ function bind() {
   }));
   $('base-tf').addEventListener('change', (e) => setBaseTf(e.target.value));
   $('train-pct').addEventListener('change', saveSettings);
+  $('fmToken').value = fmToken;
+  $('fmToken').addEventListener('change', () => {
+    fmToken = $('fmToken').value.trim(); fmClient.token = fmToken;
+    try { localStorage.setItem('bt.fmtoken', fmToken); } catch { /* ignore */ }
+  });
   $('days').addEventListener('change', (e) => { state.days = Number(e.target.value); if (!$('hist-box').hidden) $('hist-status').innerHTML = histNote(); updateDataWarn(); saveSettings(); });
   for (const id of ['capital', 'posPct', 'feePct', 'slipPct', 'mmrPct']) $(id).addEventListener('change', saveSettings);
 
@@ -684,8 +750,9 @@ async function init() {
   renderPool();
   renderManual();
   renderSymbols();
-  setMarket(s.market === 'spot' ? 'spot' : 'perp', true);
-  setDir(s.market === 'spot' ? 'long' : 'short');
+  const mkt = ['spot', 'tw'].includes(s.market) ? s.market : 'perp';
+  setMarket(mkt, true);
+  setDir(mkt === 'perp' ? 'short' : 'long');
   updateDataWarn();
 }
 init();

@@ -9,6 +9,7 @@ import { computeMetrics } from './metrics.js';
  */
 export function strategyToCfg(strategy, costs, market) {
   const perp = market === 'perp';
+  const tw = market === 'tw';
   return {
     dir: strategy.dir === 'short' ? -1 : 1,
     lev: perp ? strategy.lev || 1 : 1,
@@ -24,12 +25,17 @@ export function strategyToCfg(strategy, costs, market) {
     slippage: costs.slippage,
     mmr: costs.mmr,
     perp,
+    // 台股：買進只收手續費；賣出另外加證交稅（依標的另計）、有最低手續費、以整股計
+    feeIn: costs.fee,
+    minFee: tw ? costs.minFee || 0 : 0,
+    lot: tw ? 1 : 0,
+    limitLock: tw,
   };
 }
 
 export function validateStrategy(ds, strategy) {
-  if (ds.market === 'spot') {
-    if (strategy.dir === 'short') throw new Error('現貨市場無法做空');
+  if (ds.market !== 'perp') {
+    if (strategy.dir === 'short') throw new Error(ds.market === 'tw' ? '台股不支援做空' : '現貨市場無法做空');
     if ((strategy.lev || 1) !== 1) throw new Error('現貨市場不支援槓桿');
   }
   if (strategy.unit === 'usdt' && !(strategy.posUsdt > 0)) throw new Error('以 USDT 金額設定停損／停利時，必須同時指定「每筆投入金額」');
@@ -60,7 +66,8 @@ export function runStrategy(sig, strategy, costs, range, opts = {}) {
     const S = ds.symbols[si];
     const entries = sig.entryIdx(si, strategy.entry, strategy.entryMode || 'edge');
     const exitSig = sig.exitSignal(si, strategy.exit);
-    const cfg = exitSig ? { ...cfg0, exitSig } : cfg0;
+    const tax = ds.market === 'tw' ? (S.isEtf ? costs.taxEtf ?? 0.001 : costs.tax ?? 0.003) : 0;
+    const cfg = { ...cfg0, feeOut: costs.fee + tax, ...(exitSig ? { exitSig } : {}) };
     const r = simulateSymbol(ds, S, entries, cfg, range, per, scratch);
     if (record) for (let i = 0; i < len; i++) total[i] += scratch[i];
     for (const t of r.trades) { t.symbol = S.symbol; t.si = si; trades.push(t); }

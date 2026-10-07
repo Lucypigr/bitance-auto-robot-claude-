@@ -108,3 +108,94 @@ export function splitRanges(ds, trainFrac = 0.7) {
     splitIdx,
   };
 }
+
+// ---------------------------------------------------------------------------
+// 台股（日線）
+// ---------------------------------------------------------------------------
+
+/**
+ * 還原股價：依「除權息／分割／減資」事件，把事件日「之前」的價格乘上調整係數，
+ * 讓價格在事件前後連續（否則除息或分割當天會被誤判成暴跌）。
+ * actions: [{ date:'YYYY-MM-DD', factor }]，factor = 事件後參考價 ÷ 事件前收盤價（0~1.5 之間才採用）。
+ * splitLike=true 的事件（分割、面額變更、減資）同時調整成交量。
+ */
+export function adjustPrices(bars, actions) {
+  const out = { t: bars.t.slice(), o: bars.o.slice(), h: bars.h.slice(), l: bars.l.slice(), c: bars.c.slice(), v: bars.v.slice() };
+  const applied = [];
+  for (const a of actions) {
+    const D = Date.parse(`${a.date}T00:00:00Z`);
+    if (!(a.factor > 0.05 && a.factor < 1.5) || Number.isNaN(D)) continue;
+    let touched = false;
+    for (let i = 0; i < out.t.length && out.t[i] < D; i++) {
+      out.o[i] *= a.factor; out.h[i] *= a.factor; out.l[i] *= a.factor; out.c[i] *= a.factor;
+      if (a.splitLike) out.v[i] /= a.factor;
+      touched = true;
+    }
+    if (touched) applied.push(a);
+  }
+  return { bars: out, applied };
+}
+
+/** 找出還原後仍然超出漲跌幅限制(±10%)太多的單日跳動（可能是沒被資料涵蓋的公司行動） */
+export function findSuspiciousJumps(bars, limit = 0.13) {
+  const res = [];
+  for (let i = 1; i < bars.t.length; i++) {
+    const r = bars.c[i] / bars.c[i - 1] - 1;
+    if (Math.abs(r) > limit) res.push({ t: bars.t[i], ret: r });
+  }
+  return res;
+}
+
+/**
+ * 台股資料集：時間軸是「交易日曆」（所有選到的股票出現過的交易日的聯集），不是連續的日曆日。
+ * 某檔股票在某個交易日沒有資料（停牌）→ 以前一日收盤補平盤、成交量 0。
+ * @param {object} o
+ * @param {number} o.windowStart 回測起點（ms，UTC 日期）
+ * @param {Array} o.symbols [{symbol, name, isEtf, bars:{t,o,h,l,c,v}(已還原), jumps?}]
+ */
+export function buildTwDataset({ windowStart, symbols }) {
+  const warnings = [];
+  const set = new Set();
+  for (const sd of symbols) for (let i = 0; i < sd.bars.t.length; i++) set.add(sd.bars.t[i]);
+  const times = Float64Array.from([...set].sort((a, b) => a - b));
+  const n = times.length;
+  if (n === 0) throw new Error('沒有任何交易日資料');
+  const idxOf = new Map();
+  for (let i = 0; i < n; i++) idxOf.set(times[i], i);
+  let windowStartIdx = 0;
+  while (windowStartIdx < n && times[windowStartIdx] < windowStart) windowStartIdx++;
+  if (windowStartIdx >= n - 5) throw new Error('回測期間內的交易日太少');
+
+  const out = [];
+  for (const sd of symbols) {
+    const o = new Float64Array(n).fill(NaN);
+    const h = new Float64Array(n).fill(NaN);
+    const l = new Float64Array(n).fill(NaN);
+    const c = new Float64Array(n).fill(NaN);
+    const v = new Float64Array(n).fill(NaN);
+    let first = -1;
+    let last = -1;
+    for (let k = 0; k < sd.bars.t.length; k++) {
+      const i = idxOf.get(sd.bars.t[k]);
+      o[i] = sd.bars.o[k]; h[i] = sd.bars.h[k]; l[i] = sd.bars.l[k]; c[i] = sd.bars.c[k]; v[i] = sd.bars.v[k];
+      if (first < 0 || i < first) first = i;
+      if (i > last) last = i;
+    }
+    if (first < 0) { warnings.push(`${sd.symbol} ${sd.name || ''}：沒有可用的價格資料，已略過`); continue; }
+    let gaps = 0;
+    for (let i = first + 1; i <= last; i++) {
+      if (Number.isNaN(c[i])) { o[i] = h[i] = l[i] = c[i] = c[i - 1]; v[i] = 0; gaps++; }
+    }
+    const coverage = (last - Math.max(first, windowStartIdx) + 1) / Math.max(1, n - windowStartIdx);
+    if (coverage < 0.8) warnings.push(`${sd.symbol} ${sd.name || ''}：在回測期間內只有約 ${(coverage * 100).toFixed(0)}% 的交易日有資料（上市較晚或已下市）`);
+    if (gaps > 3) warnings.push(`${sd.symbol} ${sd.name || ''}：有 ${gaps} 個交易日沒有成交（停牌？），已補平盤`);
+    if (sd.jumps && sd.jumps.length) {
+      warnings.push(`${sd.symbol} ${sd.name || ''}：還原後仍有單日跳動超過 13%（${sd.jumps.slice(0, 3).map((j) => new Date(j.t).toISOString().slice(0, 10)).join('、')}），可能是未涵蓋的公司行動，結果請小心解讀`);
+    }
+    out.push({ symbol: sd.symbol, name: sd.name || '', isEtf: !!sd.isEtf, first, last, gaps, realBars: sd.bars.t.length, o, h, l, c, v, mh: null, ml: null, funding: null, tf: {} });
+  }
+  return {
+    market: 'tw', baseTf: '1d', baseMs: 86400000, t0: times[0], times, n, windowStartIdx,
+    annual: 252, symbols: out, warnings,
+  };
+}

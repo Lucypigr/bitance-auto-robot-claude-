@@ -64,6 +64,22 @@ export function alignDown(t, step) {
   return Math.floor(t / step) * step;
 }
 
+/** 第 i 根 K 線的開始時間（ms）。股票資料集有自己的交易日曆（ds.times），加密貨幣則是等間距時間軸 */
+export function timeAt(ds, i) {
+  return ds.times ? ds.times[i] : ds.t0 + i * ds.baseMs;
+}
+export const currencyOf = (ds) => (ds.market === 'tw' ? 'TWD' : 'USDT');
+/** 顯示用名稱：台股「2330 台積電」，加密貨幣就是交易對 */
+export function symLabel(ds, code) {
+  const S = ds.symbols.find((s) => s.symbol === code);
+  return S && S.name ? `${code} ${S.name}` : code;
+}
+/** 區間 [from, to) 涵蓋的真實時間長度（ms） */
+export function spanMs(ds, range) {
+  if (!ds.times) return (range.to - range.from) * ds.baseMs;
+  return ds.times[Math.max(range.from, range.to - 1)] - ds.times[range.from] + ds.baseMs;
+}
+
 export function isFiniteNum(x) {
   return typeof x === 'number' && Number.isFinite(x);
 }

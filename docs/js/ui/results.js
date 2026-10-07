@@ -1,7 +1,8 @@
 // 結果頁面的各個區塊
 import { term, esc } from './info.js';
-import { fmtPct, fmtNum, fmtMoney, fmtPrice, fmtTime, fmtDate, signClass } from './format.js';
-import { candleChart, lineChart, toChartTime, cssVar } from './charts.js';
+import { fmtPct, fmtNum, fmtMoney, fmtPrice, fmtDate, fmtDateUTC, fmtStamp, signClass } from './format.js';
+import { candleChart, lineChart, chartTime, cssVar } from './charts.js';
+import { timeAt, currencyOf, symLabel } from '../core/util.js';
 import * as I from '../core/indicators.js';
 import { CONDITIONS, describeSpec, specKey } from '../core/conditions.js';
 import { risingEdges } from '../core/signals.js';
@@ -34,7 +35,8 @@ const ROWS = [
 
 export function renderCompare(el, res, ds) {
   const r = res.ranges;
-  const cap = (rg) => `${fmtDate(ds.t0 + rg.from * ds.baseMs)} ～ ${fmtDate(ds.t0 + rg.to * ds.baseMs - 1)}`;
+  const fd = ds.times ? fmtDateUTC : fmtDate;
+  const cap = (rg) => `${fd(timeAt(ds, rg.from))} ～ ${fd(ds.times ? timeAt(ds, rg.to - 1) : timeAt(ds, rg.to) - 1)}`;
   const trainPct = Math.round((100 * (r.train.to - r.train.from)) / (r.full.to - r.full.from));
   const cols = [
     ['col-train', term('training', `訓練期 ${trainPct}%`), cap(r.train), res.train.metrics],
@@ -183,15 +185,15 @@ export function renderTrades(el, res, ds, view) {
   const slice = trades.slice(view.page * per, view.page * per + per);
   const syms = ds.symbols.map((s) => s.symbol);
   const rows = slice.map((t, i) => `<tr>
-    <td>${view.page * per + i + 1}</td><td>${t.seg}</td><td>${esc(t.symbol)}</td><td class="${t.dir > 0 ? 'pos' : 'neg'}">${t.dir > 0 ? '做多' : '做空'}</td>
-    <td>${fmtTime(t.entryTime)}</td><td>${fmtPrice(t.entryPrice)}</td><td>${fmtTime(t.exitTime)}</td><td>${fmtPrice(t.exitPrice)}</td>
+    <td>${view.page * per + i + 1}</td><td>${t.seg}</td><td>${esc(symLabel(ds, t.symbol))}</td><td class="${t.dir > 0 ? 'pos' : 'neg'}">${t.dir > 0 ? '做多' : '做空'}</td>
+    <td>${fmtStamp(ds, t.entryTime)}</td><td>${fmtPrice(t.entryPrice)}</td><td>${fmtStamp(ds, t.exitTime)}</td><td>${fmtPrice(t.exitPrice)}</td>
     <td>${REASON[t.reason] || t.reason}</td><td>${t.bars}</td><td>${t.lev}×</td><td>${fmtMoney(t.fee)}</td><td class="${signClass(t.funding)}">${fmtMoney(t.funding, 2, true)}</td>
     <td class="${signClass(t.pnl)}">${fmtMoney(t.pnl, 2, true)}</td><td class="${signClass(t.ret)}">${fmtPct(t.ret, 2, true)}</td></tr>`).join('');
   el.innerHTML = `<div class="chart-tools">
       <label>期間 <select id="tr-seg"><option value="">全部</option><option ${view.seg === '訓練' ? 'selected' : ''}>訓練</option><option ${view.seg === '樣本外' ? 'selected' : ''}>樣本外</option></select></label>
-      <label>幣種 <select id="tr-sym"><option value="">全部</option>${syms.map((s) => `<option ${view.symbol === s ? 'selected' : ''}>${esc(s)}</option>`).join('')}</select></label>
+      <label>幣種 <select id="tr-sym"><option value="">全部</option>${syms.map((s) => `<option value="${esc(s)}" ${view.symbol === s ? 'selected' : ''}>${esc(symLabel(ds, s))}</option>`).join('')}</select></label>
       <span class="muted small">共 ${trades.length} 筆；報酬% = 該筆淨損益 ÷ 進場前資金袋淨值</span></div>
-    <div class="tbl-wrap"><table class="tbl" data-testid="trades"><thead><tr><th>#</th><th>期間</th><th>幣種</th><th>方向</th><th>進場時間</th><th>進場價</th><th>出場時間</th><th>出場價</th><th>原因</th><th>K 數</th><th>槓桿</th><th>手續費</th><th>Funding</th><th>淨損益 USDT</th><th>報酬</th></tr></thead><tbody>${rows || '<tr><td colspan="15" class="muted">沒有交易</td></tr>'}</tbody></table></div>
+    <div class="tbl-wrap"><table class="tbl" data-testid="trades"><thead><tr><th>#</th><th>期間</th><th>幣種</th><th>方向</th><th>進場時間</th><th>進場價</th><th>出場時間</th><th>出場價</th><th>原因</th><th>K 數</th><th>槓桿</th><th>手續費</th><th>Funding</th><th>淨損益 ${currencyOf(ds)}</th><th>報酬</th></tr></thead><tbody>${rows || '<tr><td colspan="15" class="muted">沒有交易</td></tr>'}</tbody></table></div>
     <div class="pager"><button class="btn small" id="tr-prev" ${view.page === 0 ? 'disabled' : ''}>上一頁</button> ${view.page + 1} ／ ${pages} <button class="btn small" id="tr-next" ${view.page >= pages - 1 ? 'disabled' : ''}>下一頁</button></div>`;
 }
 
@@ -232,7 +234,7 @@ function downsample(arr, max = 20000) {
 function seriesPoints(ds, range, values, scale = 1) {
   const pts = [];
   for (let i = 0; i < values.length; i++) {
-    pts.push({ time: toChartTime(ds.t0 + (range.from + i + 1) * ds.baseMs), value: values[i] * scale });
+    pts.push({ time: chartTime(ds, ds.times ? timeAt(ds, range.from + i) : timeAt(ds, range.from + i + 1)), value: values[i] * scale });
   }
   return pts;
 }
@@ -304,16 +306,16 @@ export function buildCandleChart(el, { ds, sig, res, strategy, si, show, legendE
   const from = Math.max(ds.windowStartIdx, S.first);
   const candles = [];
   for (let i = from; i <= S.last; i++) {
-    candles.push({ time: toChartTime(ds.t0 + i * ds.baseMs), open: S.o[i], high: S.h[i], low: S.l[i], close: S.c[i] });
+    candles.push({ time: chartTime(ds, timeAt(ds, i)), open: S.o[i], high: S.h[i], low: S.l[i], close: S.c[i] });
   }
-  const timeAt = (idx) => toChartTime(ds.t0 + idx * ds.baseMs);
+  const tAt = (idx) => chartTime(ds, timeAt(ds, idx));
   const lines = [];
   const bundle = sig.bundle(si, ds.baseTf);
   const lineFrom = (arr, color, title) => {
     const data = [];
     for (let k = 0; k < arr.length; k++) {
       const idx = S.first + k;
-      if (idx >= from && Number.isFinite(arr[k])) data.push({ time: timeAt(idx), value: arr[k] });
+      if (idx >= from && Number.isFinite(arr[k])) data.push({ time: tAt(idx), value: arr[k] });
     }
     lines.push({ data, color, title });
   };
@@ -330,23 +332,23 @@ export function buildCandleChart(el, { ds, sig, res, strategy, si, show, legendE
       const label = ['①', '②', '③', '④'][n];
       const def = CONDITIONS[sp.id];
       const above = def.side === 'bear' || (def.side === 'neutral' && strategy.dir === 'short');
-      for (const i of idx) if (i >= from) markers.push({ time: timeAt(i), position: above ? 'aboveBar' : 'belowBar', color: '#8b93a7', shape: 'circle', text: label, size: 0.6 });
+      for (const i of idx) if (i >= from) markers.push({ time: tAt(i), position: above ? 'aboveBar' : 'belowBar', color: '#8b93a7', shape: 'circle', text: label, size: 0.6 });
       legend.push(`${label} ${describeSpec(sp)}`);
     });
     const all = sig.entryIdx(si, strategy.entry, strategy.entryMode || 'edge');
-    for (const i of all) if (i >= from) markers.push({ time: timeAt(i), position: strategy.dir === 'short' ? 'aboveBar' : 'belowBar', color: cssVar('--accent'), shape: 'square', text: '訊號', size: 0.8 });
+    for (const i of all) if (i >= from) markers.push({ time: tAt(i), position: strategy.dir === 'short' ? 'aboveBar' : 'belowBar', color: cssVar('--accent'), shape: 'square', text: '訊號', size: 0.8 });
   }
   if (show.trade) {
     const upC = cssVar('--up'); const dnC = cssVar('--down');
     for (const seg of [res.train, res.holdout]) {
       for (const t of seg.trades) {
         if (t.symbol !== S.symbol) continue;
-        markers.push({ time: timeAt(t.entryIdx), position: t.dir > 0 ? 'belowBar' : 'aboveBar', color: t.dir > 0 ? upC : dnC, shape: t.dir > 0 ? 'arrowUp' : 'arrowDown', text: `${t.dir > 0 ? '多' : '空'}${t.lev > 1 ? t.lev + '×' : ''}` });
-        markers.push({ time: timeAt(t.exitIdx), position: t.dir > 0 ? 'aboveBar' : 'belowBar', color: t.pnl >= 0 ? upC : dnC, shape: 'circle', text: REASON[t.reason] || '' });
+        markers.push({ time: tAt(t.entryIdx), position: t.dir > 0 ? 'belowBar' : 'aboveBar', color: t.dir > 0 ? upC : dnC, shape: t.dir > 0 ? 'arrowUp' : 'arrowDown', text: `${t.dir > 0 ? '多' : '空'}${t.lev > 1 ? t.lev + '×' : ''}` });
+        markers.push({ time: tAt(t.exitIdx), position: t.dir > 0 ? 'aboveBar' : 'belowBar', color: t.pnl >= 0 ? upC : dnC, shape: 'circle', text: REASON[t.reason] || '' });
       }
     }
     const splitIdx = res.ranges.splitIdx;
-    if (splitIdx >= from && splitIdx <= S.last) markers.push({ time: timeAt(splitIdx), position: 'aboveBar', color: '#f59e0b', shape: 'square', text: '樣本外開始' });
+    if (splitIdx >= from && splitIdx <= S.last) markers.push({ time: tAt(splitIdx), position: 'aboveBar', color: '#f59e0b', shape: 'square', text: '樣本外開始' });
   }
   markers.sort((a, b) => a.time - b.time);
   const MAX = 1500;
@@ -358,18 +360,17 @@ export function buildCandleChart(el, { ds, sig, res, strategy, si, show, legendE
   }
   return candleChart(el, { candles, markers: shown, lines });
 }
-void fmtTime;
 void specKey;
 
 // ---------------- 設定檢查（交易數太少時）----------------
-export function renderDiagnosis(el, d) {
+export function renderDiagnosis(el, d, ds) {
   const rows = [
     ...d.conditions.map((c, i) => `<tr><td class="txt">條件 ${i + 1}：${esc(c.text)}</td><td class="${c.train === 0 ? 'neg' : ''}">${c.train.toLocaleString()}</td><td>${c.holdout.toLocaleString()}</td></tr>`),
     `<tr class="hl"><td class="txt">${d.conditions.length > 1 ? '全部條件「同時成立」的 K 線數' : '條件成立的 K 線數'}</td><td>${d.andTrain.toLocaleString()}</td><td>${d.andHold.toLocaleString()}</td></tr>`,
     `<tr><td class="txt">進場訊號（${term('entry_mode', '進場方式')}過濾後）</td><td>${d.entryTrain.toLocaleString()}</td><td>${d.entryHold.toLocaleString()}</td></tr>`,
     `<tr class="hl"><td class="txt"><b>實際成交的交易數</b>（一個幣種同時只持一個部位）</td><td class="${d.low ? 'neg' : ''}"><b>${d.tradesTrain}</b></td><td><b>${d.tradesHold}</b></td></tr>`,
   ].join('');
-  const sym = d.perSymbol.map((p) => `<tr><td>${esc(p.symbol)}</td><td>${p.bars.toLocaleString()}</td><td>${p.and}</td><td>${p.entries}</td><td>${p.trades}</td><td>${p.tradesHold}</td></tr>`).join('');
+  const sym = d.perSymbol.map((p) => `<tr><td>${esc(ds ? symLabel(ds, p.symbol) : p.symbol)}</td><td>${p.bars.toLocaleString()}</td><td>${p.and}</td><td>${p.entries}</td><td>${p.trades}</td><td>${p.tradesHold}</td></tr>`).join('');
   const open = d.low || d.tradesHold < 10;
   el.innerHTML = `<details ${open ? 'open' : ''} data-testid="diag">
     <summary><b>設定檢查：${d.low ? '交易數偏少，是哪一關擋掉的？' : '訊號是怎麼變成交易的'}</b>
@@ -387,17 +388,18 @@ export function renderSearchTips(tips) {
 }
 
 // ---------------- 各幣種損益 ----------------
-export function renderSymbolBreakdown(el, res, capital) {
+export function renderSymbolBreakdown(el, res, capital, ds) {
+  const cur = currencyOf(ds);
   const tr = symbolBreakdown(res.train, capital);
   const oo = symbolBreakdown(res.holdout, capital);
   const rows = tr.rows.map((r, i) => ({ tr: r, oo: oo.rows[i] })).sort((a, b) => b.tr.pnl - a.tr.pnl);
   const cell = (r) => `<td class="${signClass(r.pnl)}">${fmtMoney(r.pnl, 2, true)}</td><td class="${signClass(r.ret)}">${fmtPct(r.ret, 1, true)}</td><td>${r.trades}</td><td>${r.winRate === null ? '—' : fmtPct(r.winRate, 0)}</td>`;
-  const body = rows.map(({ tr: a, oo: b }) => `<tr><td><b>${esc(a.symbol)}</b>${a.liquidations + b.liquidations ? ' <span class="badge bad">清算</span>' : ''}</td>${cell(a)}${cell(b)}</tr>`).join('');
+  const body = rows.map(({ tr: a, oo: b }) => `<tr><td><b>${esc(symLabel(ds, a.symbol))}</b>${a.liquidations + b.liquidations ? ' <span class="badge bad">清算</span>' : ''}</td>${cell(a)}${cell(b)}</tr>`).join('');
   const tot = (s, t) => `<td class="${signClass(s.totalPnl)}"><b>${fmtMoney(s.totalPnl, 2, true)}</b></td><td class="${signClass(s.totalPnl)}"><b>${fmtPct(s.totalPnl / capital, 1, true)}</b></td><td><b>${t.trades}</b></td><td>${t.trades ? fmtPct(t.winRate, 0) : '—'}</td>`;
   el.innerHTML = `<h2>各幣種損益</h2>
-    <div class="muted small" style="margin-bottom:8px">上面「淨報酬」是所有幣種<b>加總</b>的結果。下表拆開來看每個幣種賺賠多少（USDT）。每個幣種的報酬率是以它自己分到的資金（${term('capital_split', '總資金 ÷ 幣種數')} ＝ ${fmtMoney(tr.sleeve, 2)} USDT）計算。</div>
+    <div class="muted small" style="margin-bottom:8px">上面「淨報酬」是所有幣種<b>加總</b>的結果。下表拆開來看每個標的賺賠多少（${cur}）。每個標的的報酬率是以它自己分到的資金（${term('capital_split', '總資金 ÷ 標的數')} ＝ ${fmtMoney(tr.sleeve, 2)} ${cur}）計算。</div>
     <div class="tbl-wrap"><table class="tbl" data-testid="symbols"><thead>
-      <tr><th rowspan="2">幣種</th><th colspan="4" class="col-train" style="text-align:center">訓練期</th><th colspan="4" class="col-oos" style="text-align:center">樣本外</th></tr>
+      <tr><th rowspan="2">標的</th><th colspan="4" class="col-train" style="text-align:center">訓練期</th><th colspan="4" class="col-oos" style="text-align:center">樣本外</th></tr>
       <tr><th>淨損益</th><th>報酬率</th><th>交易</th><th>勝率</th><th>淨損益</th><th>報酬率</th><th>交易</th><th>勝率</th></tr></thead>
       <tbody>${body}<tr class="hl"><td><b>合計（＝總成績）</b></td>${tot(tr, res.train.metrics)}${tot(oo, res.holdout.metrics)}</tr></tbody></table></div>
     <div class="muted small">按「逐筆交易」分頁可以看到每一筆；也能用幣種篩選。</div>`;

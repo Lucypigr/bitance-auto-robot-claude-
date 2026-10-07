@@ -10,6 +10,11 @@ export function toChartTime(ms) {
   return Math.floor(ms / 1000) - new Date(ms).getTimezoneOffset() * 60;
 }
 
+/** 台股日線的時間就是「交易日日期」，不做時區位移；加密貨幣用本機時區 */
+export function chartTime(ds, ms) {
+  return ds.times ? Math.floor(ms / 1000) : toChartTime(ms);
+}
+
 function themeOptions() {
   return {
     layout: { background: { type: ColorType.Solid, color: cssVar('--panel') }, textColor: cssVar('--muted'), fontFamily: 'inherit' },

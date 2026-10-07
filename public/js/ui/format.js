@@ -38,4 +38,11 @@ export function fmtDate(ms) {
   const p = (n) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
+export function fmtDateUTC(ms) {
+  return new Date(ms).toISOString().slice(0, 10);
+}
+/** 加密貨幣用本機時間（含時分），台股日線用日期（UTC 日期＝交易日） */
+export function fmtStamp(ds, ms) {
+  return ds.times ? fmtDateUTC(ms) : fmtTime(ms);
+}
 export const signClass = (x) => (x > 0 ? 'pos' : x < 0 ? 'neg' : '');

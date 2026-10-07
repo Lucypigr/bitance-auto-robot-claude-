@@ -52,12 +52,13 @@
         <div class="seg" role="radiogroup" aria-label="市場">
           <button type="button" class="seg-btn" data-market="perp" role="radio" aria-checked="true">USDT 永續合約</button>
           <button type="button" class="seg-btn" data-market="spot" role="radio" aria-checked="false">現貨</button>
+          <button type="button" class="seg-btn" data-market="tw" role="radio" aria-checked="false">台股（日線）</button>
         </div>
-        <div class="muted small"><span data-term="perp">永續合約</span>可做多做空與槓桿；<span data-term="spot">現貨</span>只能做多。</div>
+        <div class="muted small"><span data-term="perp">永續合約</span>可做多做空與槓桿；<span data-term="spot">現貨</span>只能做多；<span data-term="tw_stock">台股</span>只有日線、只做多。</div>
       </div>
 
       <div class="field">
-        <div class="label">幣種 <span class="muted" id="sym-count">（已選 0／15）</span></div>
+        <div class="label"><span id="sym-label">幣種</span> <span class="muted" id="sym-count">（已選 0／15）</span></div>
         <div id="sym-selected" class="chips" aria-live="polite"></div>
         <label class="row gap small" for="sym-sort"><span class="muted"><span data-term="gainers">排序</span></span>
           <select id="sym-sort" aria-label="幣種排序">
@@ -79,7 +80,7 @@
           </div>
           <div id="hist-status" class="small"></div>
         </div>
-        <input id="sym-search" type="search" placeholder="搜尋幣種，例如 BTC、SOL…" autocomplete="off" aria-label="搜尋幣種">
+        <input id="sym-search" type="search" placeholder="搜尋，例如 BTC、SOL…" autocomplete="off" aria-label="搜尋幣種">
         <div id="sym-list" class="sym-list" role="listbox" aria-label="幣種清單"></div>
         <div class="row gap wrap">
           <button type="button" class="btn small" data-preset="3">依排序前 3</button>
@@ -128,11 +129,17 @@
       <details class="adv">
         <summary>進階：資金與成本設定</summary>
         <div class="grid2">
-          <div class="field"><label class="label" for="capital">初始資金（USDT）</label><input id="capital" type="number" min="100" step="100" value="10000"></div>
+          <div class="field"><label class="label" for="capital"><span data-cur="初始資金（{C}）">初始資金（USDT）</span></label><input id="capital" type="number" min="100" step="100" value="10000"></div>
           <div class="field"><label class="label" for="posPct"><span data-term="position_pct">每筆投入比例</span>（%）</label><input id="posPct" type="number" min="1" max="100" step="1" value="100"></div>
           <div class="field"><label class="label" for="feePct"><span data-term="fee">手續費</span>（單邊 %）</label><input id="feePct" type="number" min="0" max="1" step="0.005" value="0.05"></div>
           <div class="field"><label class="label" for="slipPct"><span data-term="slippage">滑價</span>（單邊 %）</label><input id="slipPct" type="number" min="0" max="2" step="0.01" value="0.05"></div>
           <div class="field" id="mmr-field"><label class="label" for="mmrPct"><span data-term="maintenance_margin">維持保證金率</span>（%）</label><input id="mmrPct" type="number" min="0.1" max="5" step="0.1" value="0.5"></div>
+          <div id="tw-fields" class="grid2" hidden style="grid-column:1/-1">
+            <div class="field"><label class="label" for="taxPct"><span data-term="tw_tax">證交稅</span>（賣出 %）</label><input id="taxPct" type="number" min="0" max="1" step="0.01" value="0.3"></div>
+            <div class="field"><label class="label" for="taxEtfPct">ETF 證交稅（賣出 %）</label><input id="taxEtfPct" type="number" min="0" max="1" step="0.01" value="0.1"></div>
+            <div class="field"><label class="label" for="minFee">最低手續費（TWD／筆）</label><input id="minFee" type="number" min="0" step="1" value="20"></div>
+            <div class="field"><label class="label" for="fmToken"><span data-term="fm_token">FinMind Token</span>（選填）</label><input id="fmToken" type="password" autocomplete="off" placeholder="沒填也能用，但每小時額度較少"></div>
+          </div>
           <div class="field" id="mark-field"><label class="check"><input id="useMark" type="checkbox" checked> 用<span data-term="mark_price">標記價格</span>判斷清算</label></div>
         </div>
         <div class="muted small"><span data-term="capital_split">資金會平均分配</span>給每個幣種。預設手續費：永續 0.05%、現貨 0.1%（切換市場時自動調整）。</div>
@@ -166,8 +173,8 @@
           <summary>進階：停損、停利、槓桿的搜尋範圍</summary>
           <div class="grid2">
             <div class="field"><label class="label" for="s-unit"><span data-term="usdt_exit">停損停利單位</span></label>
-              <select id="s-unit"><option value="pct" selected>價格 %</option><option value="usdt">USDT 損益金額</option></select></div>
-            <div class="field"><label class="label" for="s-usdt">每筆投入（USDT 保證金）</label><input id="s-usdt" type="number" min="0" step="1" value="0"></div>
+              <select id="s-unit"><option value="pct" selected>價格 %</option><option value="usdt" data-cur="{C} 損益金額">USDT 損益金額</option></select></div>
+            <div class="field"><label class="label" for="s-usdt"><span data-cur="每筆投入（{C} 本金）">每筆投入（USDT 保證金）</span></label><input id="s-usdt" type="number" min="0" step="1" value="0"></div>
           </div>
           <div class="field"><div class="label"><span data-term="stoploss">停損</span>（勾選）</div><div class="checks" id="s-sl"></div>
             <input id="s-sl-custom" type="text" placeholder="自訂，例如 1.5, 4（用逗號分隔）" aria-label="自訂停損"></div>
@@ -218,8 +225,8 @@
         </div>
         <div class="grid2">
           <div class="field"><label class="label" for="m-unit"><span data-term="usdt_exit">停損停利單位</span></label>
-            <select id="m-unit"><option value="pct" selected>價格 %</option><option value="usdt">USDT 損益金額</option></select></div>
-          <div class="field"><label class="label" for="m-usdt">每筆投入（USDT 保證金，0＝用資金比例）</label><input id="m-usdt" type="number" min="0" step="1" value="0"></div>
+            <select id="m-unit"><option value="pct" selected>價格 %</option><option value="usdt" data-cur="{C} 損益金額">USDT 損益金額</option></select></div>
+          <div class="field"><label class="label" for="m-usdt"><span data-cur="每筆投入（{C} 本金，0＝用資金比例）">每筆投入（USDT 保證金，0＝用資金比例）</span></label><input id="m-usdt" type="number" min="0" step="1" value="0"></div>
         </div>
         <div class="grid2">
           <div class="field"><label class="label" for="m-sl"><span data-term="stoploss">停損</span>（0=不設）</label><input id="m-sl" type="number" min="0" max="50" step="0.5" value="3"></div>

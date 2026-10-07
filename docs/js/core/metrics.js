@@ -1,5 +1,5 @@
 // 績效指標與「最穩定」評分
-import { DAY } from './util.js';
+import { DAY, timeAt, spanMs } from './util.js';
 
 const MONTH_NAMES = (idx) => {
   const y = Math.floor(idx / 12);
@@ -26,8 +26,8 @@ export function computeMetrics({ equity, range, ds, trades, perSymbol, capital, 
       if (e > peak) peak = e;
       const dd = peak > 0 ? (peak - e) / peak : 0;
       if (dd > maxDD) maxDD = dd;
-      const tOpen = ds.t0 + (range.from + i) * ds.baseMs;
-      const nextOpen = tOpen + ds.baseMs;
+      const tOpen = timeAt(ds, range.from + i);
+      const nextOpen = ds.times && i < len - 1 ? timeAt(ds, range.from + i + 1) : tOpen + ds.baseMs;
       const day = Math.floor(tOpen / DAY);
       const nextDay = Math.floor(nextOpen / DAY);
       const mk = monthKey(tOpen);
@@ -55,13 +55,14 @@ export function computeMetrics({ equity, range, ds, trades, perSymbol, capital, 
     }
     const sd = Math.sqrt(v / (dailyRet.length - 1));
     const dsd = Math.sqrt(dv / dailyRet.length);
-    sharpe = sd > 1e-12 ? (mean / sd) * Math.sqrt(365) : 0;
-    sortino = dsd > 1e-12 ? (mean / dsd) * Math.sqrt(365) : mean > 0 ? 99 : 0;
+    const ann = Math.sqrt(ds.annual || 365);
+    sharpe = sd > 1e-12 ? (mean / sd) * ann : 0;
+    sortino = dsd > 1e-12 ? (mean / dsd) * ann : mean > 0 ? 99 : 0;
     sharpe = clamp(sharpe, -99, 99);
     sortino = clamp(sortino, -99, 99);
   }
 
-  const years = Math.max(len * ds.baseMs, DAY) / (365 * DAY);
+  const years = Math.max(spanMs(ds, range), DAY) / (365 * DAY);
   const cagr = final <= 0 ? -1 : Math.pow(final / capital, 1 / years) - 1;
 
   // ---- 逐筆交易統計 ----

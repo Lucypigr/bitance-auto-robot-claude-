@@ -114,12 +114,12 @@ export function describeManual(st) {
   if (!st.entry.length) return '請至少新增一個進場條件。';
   const cond = st.entry.map(describeSpec).join('　且　');
   const exits = [];
-  const u = st.unit === 'usdt' ? ' USDT' : '%';
+  const u = st.unit === 'usdt' ? ` ${st.cur || 'USDT'}` : '%';
   if (st.sl) exits.push(`停損 ${st.sl}${u}`);
   if (st.tp) exits.push(`停利 ${st.tp}${u}`);
   if (st.trail) exits.push(`移動停損 ${st.trail}%`);
   if (st.exit && st.exit.length) exits.push(`或 ${st.exit.map(describeSpec).join('、')} 時出場`);
   if (st.maxBars) exits.push(`最長持倉 ${st.maxBars} 根`);
   const mode = st.entryMode === 'level' ? '條件成立期間，空手就進場' : '條件由不成立變成立的那一根收盤後';
-  return `${mode}：${cond} → 下一根 K 線開盤${dir}（${st.lev}× 槓桿${st.posUsdt ? `，每筆投入 ${st.posUsdt} USDT 保證金` : ''}）。${exits.length ? '出場：' + exits.join('、') + '。' : '未設定停損停利，只會在資料結束時平倉。'}`;
+  return `${mode}：${cond} → 下一根 K 線開盤${dir}（${st.lev}× 槓桿${st.posUsdt ? `，每筆投入 ${st.posUsdt} ${st.cur || 'USDT'}` : ''}）。${exits.length ? '出場：' + exits.join('、') + '。' : '未設定停損停利，只會在資料結束時平倉。'}`;
 }
