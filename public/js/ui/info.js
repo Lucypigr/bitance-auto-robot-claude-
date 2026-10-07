@@ -1,18 +1,19 @@
 // ⓘ 說明：滑鼠移上去／點擊（手機點擊）顯示白話解釋與常見誤解
 import { GLOSSARY, hasTerm } from './glossary.js';
+import { illustrationHtml } from './illustrations.js';
 
 export const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-function btn(key) {
+function btn(key, ill) {
   const g = GLOSSARY[key];
   const title = g ? g.title : key;
-  return `<button type="button" class="ibtn" data-term="${esc(key)}" aria-label="說明：${esc(title)}" aria-haspopup="true">ⓘ</button>`;
+  return `<button type="button" class="ibtn" data-term="${esc(key)}"${ill ? ` data-ill="${esc(ill)}"` : ''} aria-label="說明：${esc(title)}" aria-haspopup="true">ⓘ</button>`;
 }
 
 /** 產生「文字 + ⓘ」的 HTML */
-export function term(key, label) {
+export function term(key, label, ill) {
   if (!hasTerm(key)) console.warn('缺少名詞說明：', key);
-  return `<span class="tw">${esc(label)}${btn(key)}</span>`;
+  return `<span class="tw">${esc(label)}${btn(key, ill)}</span>`;
 }
 
 /** 把靜態 HTML 中的 [data-term] 元素補上 ⓘ 按鈕 */
@@ -49,6 +50,7 @@ function show(button, pin) {
   const p = ensurePop();
   clearTimeout(hideTimer);
   p.innerHTML = `<div class="pop-title">${esc(g.title)}</div>
+    ${illustrationHtml(button.dataset.ill || key)}
     <div class="pop-plain">${esc(g.plain)}</div>
     <div class="pop-caution"><b>⚠ 常見誤解／提醒</b><span>${esc(g.caution)}</span></div>
     <button type="button" class="pop-close" aria-label="關閉說明">關閉</button>`;

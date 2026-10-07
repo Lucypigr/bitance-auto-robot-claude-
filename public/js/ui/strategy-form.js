@@ -2,6 +2,7 @@
 import { CONDITIONS, conditionGroups, describeSpec, normalizeSpec } from '../core/conditions.js';
 import { TIMEFRAMES, TF_LABEL, tfIndex } from '../core/util.js';
 import { term, esc } from './info.js';
+import { illustration } from './illustrations.js';
 
 export const TEMPLATES = [
   {
@@ -78,7 +79,7 @@ export function renderConditionList(container, list, baseTf) {
         <button type="button" class="cond-del" data-i="${i}" aria-label="刪除此條件">✕</button>
       </div>
       <div class="cond-params">${fields}${withinSel}</div>
-      <div class="cond-text">${term(def.term, describeSpec(c))}</div>
+      <div class="cond-text">${(() => { const il = illustration(c.id); return il ? `<span class="cond-thumb" title="${esc(il.cap)}">${il.svg}</span>` : ''; })()}${term(def.term, describeSpec(c), c.id)}</div>
     </div>`;
   }).join('');
 }
