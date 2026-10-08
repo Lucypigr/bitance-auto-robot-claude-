@@ -246,7 +246,7 @@ export async function runSearch(sig, cfgIn, costs, hooks = {}) {
     eligibleCount: champs.eligibleCount,
     details,
     warnings,
-    config: { ...cfg, tfs: cfg.tfs || [ds.baseTf] },
+    config: { ...cfg, tfs: cfg.tfs || [ds.baseTf], costs: { capital: costs.capital, posPct: costs.posPct, fee: costs.fee, minFee: costs.minFee || 0 } },
   };
 }
 

@@ -295,7 +295,50 @@ function renderPool() {
   $('pool-count').textContent = `已選 ${sel.size} 個條件`;
   decorate($('pool-adv'));
 }
-function setPool(ids) { state.search.pool = ids; renderPool(); }
+function setPool(ids) { state.search.pool = ids; renderPool(); refreshAdvNote(); }
+const DEF_SL = [1, 2, 3, 5];
+const DEF_TP = [1, 2, 3, 5, 10];
+const DEF_LEV = [1, 2, 3, 5, 10];
+const DEF_SEED = 20240601;
+const sameSet = (a, b) => a.length === b.length && a.every((x) => b.includes(x));
+
+/** 自動搜尋的「進階」設定中，哪些和預設不同（用來提醒使用者，避免忘了自己改過） */
+function advancedChanges() {
+  const out = [];
+  const cur = CUR();
+  if ($('s-unit').value !== 'pct') out.push(`停損停利單位＝${cur} 金額`);
+  const pu = Number($('s-usdt').value) || 0;
+  if (pu > 0) out.push(`每筆固定投入 ${pu} ${cur}`);
+  if ($('s-sl-custom').value.trim()) out.push(`自訂停損「${$('s-sl-custom').value.trim()}」`);
+  if ($('s-tp-custom').value.trim()) out.push(`自訂停利「${$('s-tp-custom').value.trim()}」`);
+  if ($('s-unit').value === 'pct') {
+    if (!sameSet(readChecks('s-sl'), DEF_SL)) out.push(`停損範圍＝${readChecks('s-sl').join('/') || '無'}`);
+    if (!sameSet(readChecks('s-tp'), DEF_TP)) out.push(`停利範圍＝${readChecks('s-tp').join('/') || '無'}`);
+  }
+  if (state.market === 'perp' && !sameSet(readChecks('s-lev'), DEF_LEV)) out.push(`槓桿範圍＝${readChecks('s-lev').join('/') || '無'}`);
+  if (Number($('s-seed').value) !== DEF_SEED) out.push(`亂數種子＝${$('s-seed').value}`);
+  if ($('s-entrymode').value !== 'edge') out.push('進場方式＝成立期間都可進場');
+  if ($('s-opp').checked) out.push('允許逆向條件');
+  const pool = readChecks('s-pool');
+  if (!sameSet(pool, DEFAULT_POOL)) out.push(`指標池 ${pool.length} 個（預設 ${DEFAULT_POOL.length} 個）`);
+  return out;
+}
+function refreshAdvNote() {
+  const c = advancedChanges();
+  $('adv-note').hidden = c.length === 0;
+  $('adv-list').textContent = c.join('；');
+}
+function resetAdvanced() {
+  $('s-unit').value = 'pct'; $('s-usdt').value = 0;
+  $('s-sl-custom').value = ''; $('s-tp-custom').value = '';
+  $('s-seed').value = DEF_SEED; $('s-entrymode').value = 'edge'; $('s-opp').checked = false;
+  $('s-unit-note').hidden = true;
+  Object.assign(state.search, { sl: DEF_SL.slice(), tp: DEF_TP.slice(), lev: DEF_LEV.slice(), pool: DEFAULT_POOL.slice() });
+  renderSearchPane();
+  renderPool();
+  refreshAdvNote();
+}
+
 function readChecks(name) {
   return [...document.querySelectorAll(`input[name="${name}"]:checked`)].map((i) => Number(i.value) || i.value);
 }
@@ -668,6 +711,9 @@ function bind() {
     document.querySelectorAll('input[name="s-sl"], input[name="s-tp"]').forEach((i) => { i.disabled = usdt; });
     $('s-unit-note').hidden = !usdt;
   });
+  $('adv-reset').addEventListener('click', resetAdvanced);
+  $('pane-search').addEventListener('change', refreshAdvNote);
+  $('pane-search').addEventListener('input', refreshAdvNote);
   $('pool-default').addEventListener('click', () => setPool(DEFAULT_POOL.slice()));
   $('pool-all').addEventListener('click', () => setPool(Object.keys(CONDITIONS)));
   $('pool-none').addEventListener('click', () => setPool([]));
@@ -745,9 +791,13 @@ async function init() {
   applyDaysLimit();
   state.search.tfs = [state.baseTf];
   state.manual.entry = [{ id: 'rsi_overbought', tf: state.baseTf, params: { level: 75 }, within: 1 }];
+  // 瀏覽器重新整理時可能「記住」上次的表單內容（例如舊的每筆投入 6），進階設定一律回到預設
+  document.querySelectorAll('input, select').forEach((el) => el.setAttribute('autocomplete', 'off'));
   bind();
   renderSearchPane();
   renderPool();
+  resetAdvanced();
+  window.addEventListener('pageshow', (e) => { if (e.persisted) resetAdvanced(); });
   renderManual();
   renderSymbols();
   const mkt = ['spot', 'tw'].includes(s.market) ? s.market : 'perp';
