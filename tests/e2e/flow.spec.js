@@ -326,3 +326,25 @@ test('台股：FinMind 額度用完時顯示清楚的錯誤', async ({ page, fak
   await page.locator('#btn-manual').click();
   await expect(page.locator('#run-error')).toContainText('Token', { timeout: 60000 });
 });
+
+test('進階設定：偏離預設時會提醒、可一鍵恢復；台股每筆投入太小會明確說明原因', async ({ page }) => {
+  await page.goto('/index.html');
+  await expect(page.getByTestId('adv-note')).toBeHidden();
+  await page.locator('[data-market="tw"]').click();
+  await page.locator('#step2 details.adv summary').first().click();
+  await page.selectOption('#s-unit', 'usdt');
+  await page.fill('#s-usdt', '6'); await page.fill('#s-sl-custom', '3'); await page.fill('#s-tp-custom', '2');
+  await expect(page.getByTestId('adv-note')).toBeVisible();
+  await expect(page.getByTestId('adv-note')).toContainText('每筆固定投入 6 TWD');
+  await page.selectOption('#days', '730'); await page.selectOption('#s-budget', '30'); await page.fill('#s-min', '3');
+  await page.locator('#btn-search').click();
+  await expect(page.getByTestId('search-tips')).toContainText('買不起 1 股', { timeout: 90000 });
+  await page.locator('#adv-reset').click();
+  await expect(page.getByTestId('adv-note')).toBeHidden();
+  await expect(page.locator('#s-unit')).toHaveValue('pct');
+  await expect(page.locator('#s-usdt')).toHaveValue('0');
+  await expect(page.locator('#s-sl-custom')).toHaveValue('');
+  await expect(page.locator('input[name="s-sl"]').first()).toBeEnabled();
+  await page.locator('#btn-search').click();
+  await expect(page.getByTestId('champ-netReturn')).toBeVisible({ timeout: 90000 });
+});

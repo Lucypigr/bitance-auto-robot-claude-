@@ -4,6 +4,22 @@ import { describeSpec, normalizeSpec, CONDITIONS } from './conditions.js';
 
 const countIn = (idx, range) => Math.max(0, lowerBound(idx, range.to - 1) - lowerBound(idx, range.from));
 
+/**
+ * 台股以整股成交：每筆可用資金買不起 1 股，就永遠不會有交易。回傳買不起的標的清單。
+ * base = 固定投入金額（不超過該標的分到的資金）或「分到的資金 × 投入比例」
+ */
+export function unaffordable(ds, { capital, posUsdt = 0, posPct = 1, fee = 0, minFee = 0 }) {
+  if (ds.market !== 'tw' || !capital) return { base: 0, list: [] };
+  const sleeve = capital / ds.symbols.length;
+  const base = posUsdt > 0 ? Math.min(posUsdt, sleeve) : sleeve * posPct;
+  const list = [];
+  for (const S of ds.symbols) {
+    const price = S.c[Math.min(S.last, ds.n - 1)];
+    if (base < price * (1 + fee) + minFee) list.push({ symbol: S.symbol, name: S.name, price });
+  }
+  return { base, list };
+}
+
 export function diagnoseStrategy(sig, strategy, ranges, res, { minTrades = 20, costs = null } = {}) {
   const ds = sig.ds;
   const nSym = ds.symbols.length;
@@ -67,6 +83,13 @@ export function diagnoseStrategy(sig, strategy, ranges, res, { minTrades = 20, c
   const thin = perSymbol.filter((p) => p.bars < 50);
   if (thin.length) add('warn', `${thin.map((p) => p.symbol).join('、')} 在訓練期的資料很少（上市較晚或資料缺漏），幾乎沒有交易機會。`);
   // 4) 設定本身是否合理
+  if (ds.market === 'tw' && costs) {
+    const u = unaffordable(ds, { capital: costs.capital, posUsdt: strategy.posUsdt, posPct: costs.posPct, fee: costs.fee, minFee: costs.minFee });
+    if (u.list.length) {
+      const all = u.list.length === ds.symbols.length;
+      add(all ? 'bad' : 'warn', `${all ? '每一檔' : '這幾檔'}都買不起 1 股：每筆可投入約 ${u.base.toLocaleString('en-US', { maximumFractionDigits: 0 })} TWD，但${u.list.slice(0, 4).map((x) => `${x.symbol}${x.name ? x.name : ''} 一股約 ${x.price.toFixed(0)}`).join('、')}${u.list.length > 4 ? '…' : ''}。台股以整股成交，買不起就不會有交易。請調高初始資金、減少標的，或到進階設定把「每筆投入」改回 0（用資金比例）。`);
+    }
+  }
   const L = strategy.lev || 1;
   const cost = costs ? 2 * (costs.fee + costs.slippage) : 0;
   if (strategy.unit === 'usdt' && strategy.posUsdt > 0) {
@@ -105,6 +128,14 @@ export function diagnoseSearch(result, ds) {
   const liq = cands.filter((c) => c.train.liquidations > 0).length;
   const maxTr = cands.reduce((m, c) => Math.max(m, c.train.trades), 0);
   const days = spanMs(ds, result.ranges.train) / 86400000;
+  const cc = result.config.costs;
+  if (ds.market === 'tw' && cc) {
+    const u = unaffordable(ds, { capital: cc.capital, posUsdt: result.config.posUsdt, posPct: cc.posPct, fee: cc.fee, minFee: cc.minFee });
+    if (u.list.length) {
+      const all = u.list.length === ds.symbols.length;
+      add(all ? 'bad' : 'warn', `${all ? '每一檔' : '有 ' + u.list.length + ' 檔'}買不起 1 股：每筆可投入約 ${u.base.toLocaleString('en-US', { maximumFractionDigits: 0 })} TWD${result.config.posUsdt > 0 ? '（你在進階設定指定了「每筆投入 ' + result.config.posUsdt + '」）' : ''}，但${u.list.slice(0, 3).map((x) => `${x.symbol}${x.name || ''} 一股約 ${x.price.toFixed(0)}`).join('、')}${u.list.length > 3 ? '…' : ''}。台股以整股成交，買不起就不會有交易——這通常就是「所有候選交易數都是 0」的原因。請把進階設定的「每筆投入」改回 0，或調高初始資金。`);
+    }
+  }
   if (!cands.length) add('bad', '沒有產生任何候選：目前的指標池、條件週期與最低交易數組合下，找不到訊號足夠的條件。請放寬最低交易數、增加幣種／資料天數，或在指標池多勾幾個條件。');
   if (cands.length && under) add(under > cands.length / 2 ? 'warn' : 'info', `${cands.length} 組候選中，有 ${under} 組在訓練期的交易數不到 ${min} 筆（全部候選的最大交易數是 ${maxTr}），所以不能當冠軍。`);
   if (liq) add('info', `有 ${liq} 組在訓練期發生過清算，不能當冠軍；降低槓桿範圍可以減少。`);

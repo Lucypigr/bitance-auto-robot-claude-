@@ -51,3 +51,28 @@ test('搜尋診斷：沒有符合資格的候選時給出具體建議', async ()
   assert.ok(tips.length > 0);
   assert.ok(tips.some((t) => /交易數不到|沒有產生任何候選|符合冠軍資格/.test(t.text)));
 });
+
+test('台股：每筆投入太小買不起 1 股 → 診斷明確指出（所有候選交易數 0 的常見原因）', async () => {
+  const { FakeTw, fakeTwFetch } = await import('../helpers/fake-tw.js');
+  const { FinMindClient, loadTwData } = await import('../../public/js/data/finmind.js');
+  const { MemoryStore } = await import('../../public/js/data/binance.js');
+  const { buildTwDataset } = await import('../../public/js/core/dataset.js');
+  const { SignalEngine } = await import('../../public/js/core/signals.js');
+  const { unaffordable } = await import('../../public/js/core/diagnose.js');
+  const NOW = Date.UTC(2026, 9, 6, 9);
+  const client = new FinMindClient({ fetchImpl: fakeTwFetch(new FakeTw({ nowMs: NOW })) });
+  const raw = await loadTwData(client, new MemoryStore(), { symbols: [{ symbol: '2330' }, { symbol: '2317' }, { symbol: '2454' }], days: 730, now: NOW });
+  const ds = buildTwDataset({ windowStart: raw.windowStart, symbols: raw.symbols });
+  const sig = new SignalEngine(ds);
+  const costs = { fee: 0.001425, slippage: 0.0005, mmr: 0.005, posPct: 1, capital: 1_000_000, tax: 0.003, taxEtf: 0.001, minFee: 20 };
+  // 每筆只投入 6 TWD：所有候選都不會有交易
+  const r = await runSearch(sig, { tfs: ['1d'], budget: 30, minTrades: 3, unit: 'usdt', posUsdt: 6, slList: [3], tpList: [2], cur: 'TWD' }, costs);
+  assert.equal(Math.max(...r.candidates.map((c) => c.train.trades)), 0);
+  const tips = diagnoseSearch(r, ds);
+  assert.ok(tips.some((t) => t.level === 'bad' && t.text.includes('買不起 1 股') && t.text.includes('每筆投入')), tips.map((t) => t.text).join('\n'));
+  // 正常設定不會誤報
+  assert.equal(unaffordable(ds, { capital: 1_000_000, posPct: 1, fee: 0.001425, minFee: 20 }).list.length, 0);
+  assert.equal(unaffordable(ds, { capital: 150, posPct: 1, fee: 0.001425, minFee: 20 }).list.length > 0, true);
+  // 加密貨幣不受影響
+  assert.equal(unaffordable({ market: 'perp', symbols: [] }, { capital: 10 }).list.length, 0);
+});
