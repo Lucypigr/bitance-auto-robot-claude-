@@ -714,6 +714,7 @@ test('可信度檢定：手動回測有 p 值表、分布圖、白話結論、MA
   expect(after.length).toBeGreaterThan(20);
   void before;
   // 搜尋 → 冠軍詳細頁：多重檢定要顯示「從 N 組候選挑出」
+  await page.locator('#tab-search').click();
   await page.locator('[data-preset="3"]').click();
   await page.selectOption('#s-budget', '30'); await page.fill('#s-min', '3');
   await page.locator('#btn-search').click();
