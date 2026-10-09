@@ -17,6 +17,7 @@
   </div>
   <div class="top-actions">
     <button id="btn-tutorial" class="btn small tut-new" type="button" data-open-tutorial>🔰 新手篇</button>
+    <button id="btn-library" class="btn small" type="button" aria-haspopup="dialog">📁 我的回測 (<span id="lib-count">0</span>)</button>
     <label class="mini-select" title="漲跌顏色">
       <span class="sr-only">漲跌顏色</span>
       <select id="color-scheme" aria-label="漲跌顏色">
@@ -29,7 +30,7 @@
 </header>
 
 <div class="disclaimer" role="note">
-  ⚠ <b>回測不代表未來績效。</b>本工具僅供學習與研究，不是投資建議；加密貨幣波動極大，槓桿可能讓你損失全部本金。
+  ⚠ <b>回測不代表未來績效。</b>本工具僅供學習與研究，不是投資建議；加密貨幣波動極大，槓桿可能讓你損失全部本金。<button type="button" class="linkbtn" data-open-tutorial="notes">查看完整注意事項</button>
 </div>
 
 <main class="layout">
@@ -297,6 +298,7 @@
 
     <div id="result-body" hidden>
       <div id="r-title" class="card result-head"></div>
+      <div id="r-actions" class="card act-bar" data-testid="actions" hidden></div>
       <div id="r-wf" class="card" hidden data-testid="wf"></div>
       <div id="r-champions" class="champions" hidden></div>
       <div id="r-verdict" class="card"></div>

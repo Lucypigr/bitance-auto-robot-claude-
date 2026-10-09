@@ -304,3 +304,27 @@ body.tut-open { overflow: hidden; }
 @media (max-width: 600px) { .tut-cols { grid-template-columns: 1fr; } .tut-panel { max-height: 94vh; } .tut-head h2 { font-size: 16px; } }
 .cond-params input.c-param { width: 76px; min-height: 32px; padding: 4px 6px; }
 .cond-err { margin-top: 6px; font-size: 12.5px; color: var(--down); }
+
+/* ---- 儲存／匯出／比較 ---- */
+.act-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.act-bar .grow { flex: 1; }
+.lib-panel { width: min(980px, 100%); }
+.lib-list { list-style: none; margin: 8px 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.lib-item { display: flex; gap: 10px; align-items: flex-start; border: 1px solid var(--border); background: var(--panel-2); border-radius: 10px; padding: 10px; }
+.lib-main { flex: 1; min-width: 0; }
+.lib-name { font-weight: 600; overflow-wrap: anywhere; }
+.lib-desc { color: var(--muted); overflow-wrap: anywhere; margin: 2px 0; }
+.lib-actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; max-width: 210px; }
+.lib-check { padding-top: 2px; }
+.lib-foot { flex-wrap: wrap; }
+.lib-foot-row { display: flex; gap: 6px; flex-wrap: wrap; }
+.lib-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 4px; vertical-align: middle; }
+.tbl.cmp td.txt { white-space: normal; text-align: left; min-width: 150px; overflow-wrap: anywhere; font-size: 12.5px; }
+.tbl.cmp td.best { outline: 2px solid var(--up); outline-offset: -2px; font-weight: 700; }
+.tbl.cmp tr.set td { background: color-mix(in srgb, var(--panel-2) 70%, transparent); }
+.empty-lib { padding: 14px 4px; }
+#toast { position: fixed; left: 50%; bottom: 22px; transform: translate(-50%, 20px); background: var(--text); color: var(--panel); padding: 10px 16px; border-radius: 10px; opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s; z-index: 1200; max-width: min(92vw, 520px); box-shadow: var(--shadow); }
+#toast.show { opacity: 1; transform: translate(-50%, 0); }
+@media (max-width: 600px) { .lib-item { flex-wrap: wrap; } .lib-actions { max-width: none; justify-content: flex-start; width: 100%; } }
+.linkbtn { border: 0; background: transparent; color: var(--accent); text-decoration: underline; cursor: pointer; font: inherit; padding: 0 4px; }
+.tut-sub { margin: 14px 0 4px; font-size: 14.5px; }
