@@ -1,5 +1,5 @@
 // 手動策略：條件列的渲染與範本
-import { CONDITIONS, conditionGroups, describeSpec, normalizeSpec } from '../core/conditions.js';
+import { CONDITIONS, conditionGroups, describeSpec, describeEntry, normalizeSpec } from '../core/conditions.js';
 import { TIMEFRAMES, TF_LABEL, tfIndex } from '../core/util.js';
 import { term, esc } from './info.js';
 import { illustration } from './illustrations.js';
@@ -61,7 +61,7 @@ function idOptions(selected) {
 }
 
 /** 渲染條件列表。事件以 data-* 屬性 + 事件委派處理（見 bindConditionList） */
-export function renderConditionList(container, list, baseTf) {
+export function renderConditionList(container, list, baseTf, { groups = true } = {}) {
   if (list.length === 0) {
     container.innerHTML = '<div class="muted small">（尚未設定）</div>';
     return;
@@ -72,13 +72,16 @@ export function renderConditionList(container, list, baseTf) {
     const fields = def.fields.map((f) => `<label>${esc(f.label)} <select data-k="${f.key}" data-i="${i}" class="c-param">${
       f.options.map((o) => `<option value="${o}" ${String(o) === String(c.params[f.key]) ? 'selected' : ''}>${o}</option>`).join('')}</select></label>`).join('');
     const withinSel = `<label>${term('within', '保留')} <select data-i="${i}" class="c-within">${[1, 2, 3, 5, 10].map((n) => `<option value="${n}" ${n === c.within ? 'selected' : ''}>${n}</option>`).join('')}</select> 根</label>`;
-    return `<div class="cond" data-i="${i}">
+    const logic = `<div class="cond-logic"><label class="check"><input type="checkbox" class="c-neg" data-i="${i}" ${c.neg ? 'checked' : ''}> ${term('cond_logic', '非')}（條件「不成立」才算）</label>${
+      groups ? `<label>邏輯 <select class="c-grp" data-i="${i}" aria-label="條件群組">${[['', '且（獨立）'], ['A', '群組 A（群組內「或」）'], ['B', '群組 B'], ['C', '群組 C'], ['D', '群組 D']].map(([v, t]) => `<option value="${v}" ${c.grp === v ? 'selected' : ''}>${t}</option>`).join('')}</select></label>` : ''}</div>`;
+    return `<div class="cond ${c.neg ? 'neg' : ''}" data-i="${i}">
       <div class="cond-main">
         <select class="c-tf" data-i="${i}" aria-label="條件週期">${tfOptions(c.tf, baseTf)}</select>
         <select class="c-id" data-i="${i}" aria-label="條件">${idOptions(c.id)}</select>
         <button type="button" class="cond-del" data-i="${i}" aria-label="刪除此條件">✕</button>
       </div>
       <div class="cond-params">${fields}${withinSel}</div>
+      ${logic}
       <div class="cond-text">${(() => { const il = illustration(c.id); return il ? `<span class="cond-thumb" title="${esc(il.cap)}">${il.svg}</span>` : ''; })()}${term(def.term, describeSpec(c), c.id)}</div>
     </div>`;
   }).join('');
@@ -97,6 +100,8 @@ export function bindConditionList(container, getList, setList, getBaseTf) {
     else if (t.classList.contains('c-id')) { c.id = t.value; c.params = {}; c.within = CONDITIONS[c.id].kind === 'event' ? 1 : 1; }
     else if (t.classList.contains('c-param')) c.params[t.dataset.k] = Number(t.value);
     else if (t.classList.contains('c-within')) c.within = Number(t.value);
+    else if (t.classList.contains('c-neg')) c.neg = t.checked;
+    else if (t.classList.contains('c-grp')) c.grp = t.value;
     setList(list);
   });
   container.addEventListener('click', (e) => {
@@ -112,7 +117,7 @@ export function bindConditionList(container, getList, setList, getBaseTf) {
 export function describeManual(st) {
   const dir = st.dir === 'long' ? '做多' : '做空';
   if (!st.entry.length) return '請至少新增一個進場條件。';
-  const cond = st.entry.map(describeSpec).join('　且　');
+  const cond = describeEntry(st.entry);
   const exits = [];
   const u = st.unit === 'usdt' ? ` ${st.cur || 'USDT'}` : '%';
   if (st.sl) exits.push(`停損 ${st.sl}${u}`);
@@ -120,6 +125,9 @@ export function describeManual(st) {
   if (st.trail) exits.push(`移動停損 ${st.trail}%`);
   if (st.exit && st.exit.length) exits.push(`或 ${st.exit.map(describeSpec).join('、')} 時出場`);
   if (st.maxBars) exits.push(`最長持倉 ${st.maxBars} 根`);
+  const rules = [];
+  if (st.capitalMode === 'shared') rules.push(`共用資金池、同時最多持有 ${st.maxPos} 檔`);
+  if (st.riskPct) rules.push(`每筆停損最多虧帳戶淨值的 ${st.riskPct}%`);
   const mode = st.entryMode === 'level' ? '條件成立期間，空手就進場' : '條件由不成立變成立的那一根收盤後';
-  return `${mode}：${cond} → 下一根 K 線開盤${dir}（${st.lev}× 槓桿${st.posUsdt ? `，每筆投入 ${st.posUsdt} ${st.cur || 'USDT'}` : ''}）。${exits.length ? '出場：' + exits.join('、') + '。' : '未設定停損停利，只會在資料結束時平倉。'}`;
+  return `${mode}：${cond} → 下一根 K 線開盤${dir}（${st.lev}× 槓桿${st.posUsdt ? `，每筆投入 ${st.posUsdt} ${st.cur || 'USDT'}` : ''}）。${exits.length ? '出場：' + exits.join('、') + '。' : '未設定停損停利，只會在資料結束時平倉。'}${rules.length ? '部位規則：' + rules.join('；') + '。' : ''}`;
 }

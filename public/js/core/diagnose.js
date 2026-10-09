@@ -1,6 +1,6 @@
 // 「交易數太少？」設定檢查：把訊號一層一層拆開來看，找出是哪一關把交易擋掉了。
 import { lowerBound, TF_MS, tfIndex, spanMs } from './util.js';
-import { describeSpec, normalizeSpec, CONDITIONS } from './conditions.js';
+import { describeSpec, normalizeSpec, entryGroups, CONDITIONS } from './conditions.js';
 
 const countIn = (idx, range) => Math.max(0, lowerBound(idx, range.to - 1) - lowerBound(idx, range.from));
 
@@ -25,6 +25,7 @@ export function diagnoseStrategy(sig, strategy, ranges, res, { minTrades = 20, c
   const nSym = ds.symbols.length;
   const specs = strategy.entry.map(normalizeSpec);
   const mode = strategy.entryMode || 'edge';
+  const pureAnd = entryGroups(specs).every((g) => g.length === 1); // 沒有 OR 群組時，「同時成立」≤ 最稀少的條件
   const sum = (fn) => { let t = 0; for (let si = 0; si < nSym; si++) t += fn(si); return t; };
 
   const conditions = specs.map((sp) => ({
@@ -58,10 +59,11 @@ export function diagnoseStrategy(sig, strategy, ranges, res, { minTrades = 20, c
 
   // 1) 條件本身
   const zero = conditions.filter((c) => c.train === 0);
-  for (const c of zero) add('bad', `「${c.text}」在訓練期一次都沒有成立，只要有它，整組條件就不可能進場。請放寬門檻、換條件，或確認週期選對。`);
-  if (conditions.length > 1 && !zero.length && andTrain === 0) {
+  for (const c of zero.filter(() => pureAnd)) add('bad', `「${c.text}」在訓練期一次都沒有成立，只要有它，整組條件就不可能進場。請放寬門檻、換條件，或確認週期選對。`);
+  if (!pureAnd && andTrain < minTrades && low) add('warn', `使用了 OR／NOT 組合，目前整體條件在訓練期只成立 ${andTrain} 次。請看上表各條件成立的次數，放寬最稀少的群組。`);
+  if (pureAnd && conditions.length > 1 && !zero.length && andTrain === 0) {
     add('bad', `每個條件單獨都有成立，但「從來沒有同時成立過」（${conditions.map((c) => `${c.train} 次`).join('／')}）。這些條件可能互相排斥（例如「剛超賣」與「剛突破」），請換掉其中一個，或把事件型條件的「保留」調大。`);
-  } else if (conditions.length > 1 && !zero.length) {
+  } else if (pureAnd && conditions.length > 1 && !zero.length) {
     const bottleneck = conditions.reduce((a, b) => (b.train < a.train ? b : a));
     if (andTrain < Math.min(...conditions.map((c) => c.train)) * 0.5 || andTrain < minTrades) {
       add(low ? 'warn' : 'info', `最稀少的條件是「${bottleneck.text}」（訓練期只成立 ${bottleneck.train} 次）。${conditions.length} 個條件要「同時成立」，次數會比最稀少的條件還少，實際同時成立只有 ${andTrain} 次。可以減少條件數，或把事件型條件（交叉、K 線型態）的「保留根數」調大。`);

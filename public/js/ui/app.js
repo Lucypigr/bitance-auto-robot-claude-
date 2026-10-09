@@ -96,6 +96,7 @@ function setBusy(b, cancellable = false) {
   state.busy = b;
   $('btn-search').disabled = b;
   $('btn-manual').disabled = b;
+  $('btn-wf').disabled = b;
   $('btn-demo').disabled = b;
   $('btn-cancel').hidden = !(b && cancellable);
 }
@@ -250,6 +251,7 @@ function setMarket(m, silent) {
 }
 
 function updateDataWarn() {
+  for (const id of ['m-maxpos', 's-maxpos']) $(id).max = String(Math.max(1, state.symbols.length));
   const bars = isTw() ? state.days * 0.69 : (state.days * DAY) / TF_MS[state.baseTf];
   const total = bars * state.symbols.length;
   const w = $('data-warn');
@@ -319,6 +321,8 @@ function advancedChanges() {
   if (Number($('s-seed').value) !== DEF_SEED) out.push(`亂數種子＝${$('s-seed').value}`);
   if ($('s-entrymode').value !== 'edge') out.push('進場方式＝成立期間都可進場');
   if ($('s-opp').checked) out.push('允許逆向條件');
+  if ($('s-capmode').value === 'shared') out.push(`共用資金池·最多 ${$('s-maxpos').value} 檔`);
+  if ((Number($('s-risk').value) || 0) > 0) out.push(`每筆風險 ${$('s-risk').value}%`);
   const pool = readChecks('s-pool');
   if (!sameSet(pool, DEFAULT_POOL)) out.push(`指標池 ${pool.length} 個（預設 ${DEFAULT_POOL.length} 個）`);
   return out;
@@ -332,6 +336,7 @@ function resetAdvanced() {
   $('s-unit').value = 'pct'; $('s-usdt').value = 0;
   $('s-sl-custom').value = ''; $('s-tp-custom').value = '';
   $('s-seed').value = DEF_SEED; $('s-entrymode').value = 'edge'; $('s-opp').checked = false;
+  $('s-capmode').value = 'sleeve'; $('s-maxpos').value = 1; $('s-risk').value = 0; $('s-maxpos-field').hidden = true;
   $('s-unit-note').hidden = true;
   Object.assign(state.search, { sl: DEF_SL.slice(), tp: DEF_TP.slice(), lev: DEF_LEV.slice(), pool: DEFAULT_POOL.slice() });
   renderSearchPane();
@@ -356,6 +361,7 @@ function readSearchConfig() {
   const tp = [...(unit === 'pct' ? readChecks('s-tp') : []), ...parse('s-tp-custom')];
   const lev = readChecks('s-lev');
   if (unit === 'usdt' && !(posUsdt > 0)) throw new Error('USDT 模式需要填寫「每筆投入」金額');
+  if ((Number($('s-risk').value) || 0) > 0 && unit === 'usdt') throw new Error('每筆風險只能搭配「價格 %」的停損，請把停損停利單位改回價格 %');
   const tfs = [...new Set([state.baseTf, ...readChecks('s-tf')])];
   if (!sl.length || !tp.length) throw new Error('停損與停利至少各選一個');
   const minTrades = Math.max(1, Number($('s-min').value) || 20);
@@ -363,6 +369,8 @@ function readSearchConfig() {
   if (!pool.length) throw new Error('指標池至少要勾選一個條件');
   const cfg = {
     pool, unit, posUsdt, trainFrac: readTrainFrac(), cur: CUR(),
+    capitalMode: $('s-capmode').value, riskPct: Math.max(0, Number($('s-risk').value) || 0),
+    maxPos: $('s-capmode').value === 'shared' ? Math.max(1, Math.min(state.symbols.length || 1, Math.floor(Number($('s-maxpos').value)) || 1)) : 0,
     direction: state.market === 'spot' ? 'long' : $('s-dir').value,
     maxConditions: Number($('s-maxc').value), budget: Number($('s-budget').value),
     tfs, minTrades, slList: sl, tpList: tp, levList: state.market === 'spot' ? [1] : (lev.length ? lev : [1]),
@@ -381,7 +389,7 @@ function setDir(d) {
 function renderManual() {
   const m = state.manual;
   renderConditionList($('m-entry'), m.entry, state.baseTf);
-  renderConditionList($('m-exit'), m.exit, state.baseTf);
+  renderConditionList($('m-exit'), m.exit, state.baseTf, { groups: false });
   $('m-summary').innerHTML = esc(describeManual(readManualStrategy(true)));
   decorate($('pane-manual'));
 }
@@ -390,11 +398,15 @@ function readManualStrategy(soft = false) {
   const num = (id) => Math.max(0, Number($(id).value) || 0);
   m.sl = num('m-sl'); m.tp = num('m-tp'); m.trail = num('m-trail'); m.maxBars = Math.floor(num('m-maxbars'));
   m.unit = $('m-unit').value; m.posUsdt = num('m-usdt');
+  m.capitalMode = $('m-capmode').value; m.riskPct = num('m-risk');
+  m.maxPos = Math.max(1, Math.min(state.symbols.length || 1, Math.floor(num('m-maxpos')) || 1));
+  $('m-maxpos-field').hidden = m.capitalMode !== 'shared';
   m.lev = state.market === 'spot' ? 1 : Number($('m-lev').value) || 1;
   m.entryMode = $('m-entrymode').value;
   const fix = (c) => { const n = normalizeSpec(c); if (tfIndex(n.tf) < tfIndex(state.baseTf)) n.tf = state.baseTf; return n; };
-  const st = { dir: m.dir, entry: m.entry.map(fix), exit: m.exit.map(fix), entryMode: m.entryMode, lev: m.lev, cur: CUR(), unit: m.unit, posUsdt: m.posUsdt, sl: m.sl, tp: m.tp, trail: m.trail, maxBars: m.maxBars };
+  const st = { dir: m.dir, entry: m.entry.map(fix), exit: m.exit.map(fix), entryMode: m.entryMode, lev: m.lev, cur: CUR(), capitalMode: m.capitalMode, maxPos: m.capitalMode === 'shared' ? m.maxPos : 0, riskPct: m.riskPct, unit: m.unit, posUsdt: m.posUsdt, sl: m.sl, tp: m.tp, trail: m.trail, maxBars: m.maxBars };
   if (!soft && !st.entry.length) throw new Error('請至少新增一個進場條件');
+  if (!soft && st.riskPct > 0 && (!(st.sl > 0) || st.unit === 'usdt')) throw new Error('每筆風險需要設定「價格 %」的停損');
   if (!soft && st.unit === 'usdt' && !(st.posUsdt > 0)) throw new Error('USDT 模式需要填寫「每筆投入」金額（例如 6）');
   return st;
 }
@@ -530,6 +542,47 @@ async function runSearch() {
   } finally { setBusy(false); }
 }
 
+async function runWalk() {
+  showError('');
+  let cfg;
+  try { cfg = readSearchConfig(); } catch (e) { showError(e.message); return; }
+  cfg.folds = Number($('wf-folds').value); cfg.ratio = Number($('wf-ratio').value); cfg.follow = $('wf-follow').value;
+  state.abort = new AbortController();
+  setBusy(true, true);
+  const prog = $('search-progress');
+  try {
+    await ensureData(new Set(cfg.tfs));
+    const costs = readCosts();
+    setProgress(prog, 0, 1, '走動式驗證準備中…');
+    const wf = await compute.walkForward(cfg, costs, (p) => {
+      const frac = p.phase === 'eval' ? p.done / Math.max(1, p.total) : p.phase === 'done' ? 1 : 0;
+      const label = p.phase === 'eval' ? `第 ${p.fold}／${p.folds} 折：在訓練期測試候選 ${p.done}／${p.total}` : p.phase === 'validate' ? `第 ${p.fold}／${p.folds} 折：驗證冠軍` : `第 ${p.fold}／${p.folds} 折：產生候選組合…`;
+      setProgress(prog, (p.fold - 1) + frac, p.folds, label);
+    });
+    prog.hidden = true;
+    if (wf.cancelled) { showError('已取消走動式驗證'); return; }
+    state.searchResult = null;
+    showWalkForward(wf, costs);
+  } catch (e) {
+    if (e.kind !== 'abort') showError(e.message || String(e));
+    prog.hidden = true; $('load-progress').hidden = true;
+  } finally { setBusy(false); }
+}
+
+function showWalkForward(wf, costs) {
+  showResultShell();
+  state.view = null; state.searchResult = null;
+  destroyAll();
+  for (const id of ['r-champions', 'r-verdict', 'r-compare', 'r-symbols', 'r-diag']) $(id).hidden = true;
+  document.querySelector('.card.charts').hidden = true;
+  const ds = state.data.ds;
+  $('r-title').innerHTML = `<div><h2>走動式驗證</h2><div class="muted small">${costsNote(costs)}　${marketName()}　${ds.symbols.length} ${isTw() ? '檔' : '個幣種'}　候選數上限 ${wf.config.budget}、最低交易數 ${wf.config.minTrades}。</div></div>`;
+  $('r-wf').hidden = false;
+  R.renderWalkForward($('r-wf'), wf, ds, costs.capital);
+  decorate($('r-wf'));
+  $('r-wf').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
 async function cancelRun() {
   if (state.abort) state.abort.abort();
   await compute.cancel();
@@ -537,6 +590,7 @@ async function cancelRun() {
 
 // ---------------- 結果顯示 ----------------
 function showResultShell() {
+  $('r-wf').hidden = true;
   $('result-empty').hidden = true;
   $('result-body').hidden = false;
 }
@@ -565,7 +619,9 @@ function showSearchResult(result, costs) {
 
 function showDetail({ res, strategy, title, costs, keepHead, candidateId }) {
   showResultShell();
-  state.view = { res, strategy, costs, candidateId };
+  const tf = Math.round(((res.ranges.train.to - res.ranges.train.from) / (res.ranges.full.to - res.ranges.full.from)) * 100) / 100;
+  state.view = { res, strategy, costs, candidateId, trainFrac: tf };
+  state.sens = null;
   state.builtCharts = {};
   state.tradeView = { seg: '', symbol: '', page: 0 };
   const ds = state.data.ds;
@@ -579,7 +635,7 @@ function showDetail({ res, strategy, title, costs, keepHead, candidateId }) {
     const old = $('r-title').querySelectorAll('[data-testid="detail-head"]');
     if (old.length > 1) old[0].remove();
   }
-  $('r-verdict').hidden = false; $('r-compare').hidden = false; $('r-diag').hidden = false;
+  $('r-verdict').hidden = false; $('r-compare').hidden = false; $('r-diag').hidden = false; $('r-wf').hidden = true;
   document.querySelector('.card.charts').hidden = false;
   R.renderVerdict($('r-verdict'), res);
   R.renderCompare($('r-compare'), res, ds);
@@ -631,6 +687,7 @@ function buildTab(name) {
   if (!state.view) return;
   const { res, strategy, costs } = state.view;
   const ds = state.data.ds;
+  if (name === 'sens') { renderSens(); return; }
   if (name === 'trades') { renderTrades(); return; }
   if (name === 'monthly') { R.renderMonthly($('monthly'), res); return; }
   if (state.builtCharts[name]) return;
@@ -646,6 +703,21 @@ function buildTab(name) {
     R.buildDrawdownChart($('dd-chart'), res, ds, costs.capital);
   }
   void strategy;
+}
+
+async function renderSens() {
+  const v = state.view;
+  const el = $('sens');
+  if (!v) return;
+  if (state.sens && state.sens.view === v) { R.renderSensitivity(el, state.sens.data, v.strategy, state.data.ds); decorate(el); return; }
+  el.innerHTML = '<div class="muted" data-testid="sens-loading">計算中…（會在基準參數附近重跑幾十次回測）</div>';
+  try {
+    const data = await compute.sensitivity(v.strategy, v.costs, v.trainFrac);
+    if (state.view !== v) return;
+    state.sens = { view: v, data };
+    R.renderSensitivity(el, data, v.strategy, state.data.ds);
+    decorate(el);
+  } catch (e) { el.innerHTML = `<div class="note bad">計算失敗：${esc(e.message)}</div>`; }
 }
 
 function buildCandle() {
@@ -711,6 +783,7 @@ function bind() {
     document.querySelectorAll('input[name="s-sl"], input[name="s-tp"]').forEach((i) => { i.disabled = usdt; });
     $('s-unit-note').hidden = !usdt;
   });
+  $('s-capmode').addEventListener('change', () => { $('s-maxpos-field').hidden = $('s-capmode').value !== 'shared'; });
   $('adv-reset').addEventListener('click', resetAdvanced);
   $('pane-search').addEventListener('change', refreshAdvNote);
   $('pane-search').addEventListener('input', refreshAdvNote);
@@ -719,6 +792,7 @@ function bind() {
   $('pool-none').addEventListener('click', () => setPool([]));
   $('s-pool').addEventListener('change', () => { state.search.pool = readChecks('s-pool'); $('pool-count').textContent = `已選 ${state.search.pool.length} 個條件`; });
   $('btn-search').addEventListener('click', runSearch);
+  $('btn-wf').addEventListener('click', runWalk);
   $('btn-manual').addEventListener('click', runManual);
   $('btn-cancel').addEventListener('click', cancelRun);
   $('btn-demo').addEventListener('click', runDemo);
@@ -731,7 +805,7 @@ function bind() {
   $('m-add-exit').addEventListener('click', () => { state.manual.exit = [...state.manual.exit, { ...defaultCondition(state.baseTf), id: 'rsi_overbought' }]; renderManual(); });
   bindConditionList($('m-entry'), () => state.manual.entry, (l) => { state.manual.entry = l; renderManual(); });
   bindConditionList($('m-exit'), () => state.manual.exit, (l) => { state.manual.exit = l; renderManual(); });
-  for (const id of ['m-sl', 'm-tp', 'm-trail', 'm-maxbars', 'm-entrymode', 'm-unit', 'm-usdt']) $(id).addEventListener('input', renderManual);
+  for (const id of ['m-sl', 'm-tp', 'm-trail', 'm-maxbars', 'm-entrymode', 'm-unit', 'm-usdt', 'm-capmode', 'm-maxpos', 'm-risk']) $(id).addEventListener('input', renderManual);
   $('m-lev').addEventListener('input', (e) => { $('m-lev-out').textContent = `${e.target.value}×`; renderManual(); });
 
   // 結果區

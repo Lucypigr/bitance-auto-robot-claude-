@@ -1,6 +1,6 @@
 // 訊號引擎：把條件算成「執行週期時間軸上的訊號索引」，並做快取。
-import { IndicatorBundle, evalSpecOnSeries, alignToBase, indicesOf, specKey, normalizeSpec } from './conditions.js';
-import { intersectSorted, TF_MS, timeAt } from './util.js';
+import { IndicatorBundle, evalSpecOnSeries, alignToBase, indicesOf, specKey, normalizeSpec, entryGroups } from './conditions.js';
+import { intersectSorted, unionSorted, TF_MS, timeAt } from './util.js';
 
 export class SignalEngine {
   constructor(ds) {
@@ -51,6 +51,20 @@ export class SignalEngine {
     let r = this.atoms.get(key);
     if (r) return r;
     const s = normalizeSpec(spec);
+    if (s.neg) {
+      // NOT：在這檔標的有資料的所有 K 線中，扣掉「條件成立」的那些
+      const pos = this.atomIdx(si, { ...s, neg: false });
+      const S = this.ds.symbols[si];
+      const out = new Int32Array(S.last - S.first + 1 - pos.length);
+      let n = 0;
+      let p = 0;
+      for (let i = S.first; i <= S.last; i++) {
+        if (p < pos.length && pos[p] === i) p++;
+        else out[n++] = i;
+      }
+      this.atoms.set(key, out);
+      return out;
+    }
     const bundle = this.bundle(si, s.tf);
     if (!bundle) {
       r = new Int32Array(0);
@@ -70,15 +84,16 @@ export class SignalEngine {
     return r;
   }
 
-  /** 多個條件 AND 之後成立的索引 */
+  /** 進場條件成立的索引：群組內 OR、群組之間 AND（沒有指定群組時就是純 AND） */
   andIdx(si, specs) {
-    const keys = specs.map(specKey).sort();
-    const key = `${si}#${keys.join('&')}`;
+    const groups = entryGroups(specs);
+    const gkeys = groups.map((g) => g.map(specKey).sort().join('|')).sort();
+    const key = `${si}#${gkeys.join('&')}`;
     let r = this.sets.get(key);
     if (r) return r;
     if (specs.length === 0) r = new Int32Array(0);
     else {
-      const lists = specs.map((sp) => this.atomIdx(si, sp)).sort((a, b) => a.length - b.length);
+      const lists = groups.map((g) => g.map((sp) => this.atomIdx(si, sp)).reduce((a, b) => unionSorted(a, b))).sort((a, b) => a.length - b.length);
       r = lists[0];
       for (let i = 1; i < lists.length && r.length; i++) r = intersectSorted(r, lists[i]);
     }

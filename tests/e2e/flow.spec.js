@@ -348,3 +348,127 @@ test('進階設定：偏離預設時會提醒、可一鍵恢復；台股每筆�
   await page.locator('#btn-search').click();
   await expect(page.getByTestId('champ-netReturn')).toBeVisible({ timeout: 90000 });
 });
+
+test('條件邏輯：(A 或 B) 且 非 C；回測與說明文字一致', async ({ page }) => {
+  await page.goto('/index.html');
+  await page.locator('#tab-manual').click();
+  await page.selectOption('#m-template', 'overbought'); // 1 個條件
+  await page.locator('#m-add-entry').click();
+  await page.locator('#m-add-entry').click();
+  await expect(page.locator('#m-entry .cond')).toHaveCount(3);
+  const rows = page.locator('#m-entry .cond');
+  await rows.nth(1).locator('.c-id').selectOption('bb_above_upper');
+  await rows.nth(2).locator('.c-id').selectOption('macd_golden');
+  await rows.nth(0).locator('.c-grp').selectOption('A');
+  await rows.nth(1).locator('.c-grp').selectOption('A');
+  await rows.nth(2).locator('.c-neg').check();
+  const sum = page.locator('#m-summary');
+  await expect(sum).toContainText('或');
+  await expect(sum).toContainText('非（');
+  await expect(rows.nth(2)).toHaveClass(/neg/);
+  await page.selectOption('#days', '90');
+  await page.locator('#btn-manual').click();
+  await expect(page.getByTestId('compare')).toBeVisible({ timeout: 60000 });
+  const desc = page.getByTestId('strategy-desc');
+  await expect(desc).toContainText('或');
+  await expect(desc).toContainText('非（');
+  await expect(page.getByTestId('diag')).toContainText('條件 3');
+});
+
+test('部位規則：共用資金池＋同時最多持倉、風險比例定位', async ({ page }) => {
+  await page.goto('/index.html');
+  await page.locator('[data-preset="5"]').click();
+  await page.locator('#tab-manual').click();
+  await page.selectOption('#m-template', 'overbought');
+  await page.selectOption('#days', '90');
+  await page.locator('#m-rules-adv summary').click();
+  await expect(page.locator('#m-maxpos-field')).toBeHidden();
+  await page.selectOption('#m-capmode', 'shared');
+  await expect(page.locator('#m-maxpos-field')).toBeVisible();
+  await page.fill('#m-maxpos', '2');
+  await page.fill('#m-risk', '1');
+  await expect(page.locator('#m-summary')).toContainText('共用資金池、同時最多持有 2 檔');
+  await expect(page.locator('#m-summary')).toContainText('每筆停損最多虧帳戶淨值的 1%');
+  await page.locator('#btn-manual').click();
+  await expect(page.getByTestId('compare')).toBeVisible({ timeout: 60000 });
+  await expect(page.getByTestId('strategy-desc')).toContainText('共用資金池·最多 2 檔');
+  await expect(page.getByTestId('strategy-desc')).toContainText('每筆風險 1%');
+  await expect(page.getByTestId('symbols')).toBeVisible();
+  // 沒設停損卻要風險定位 → 清楚的錯誤
+  await page.fill('#m-sl', '0');
+  await page.locator('#btn-manual').click();
+  await expect(page.locator('#run-error')).toContainText('停損');
+});
+
+test('自動搜尋也能用共用資金池與風險比例，並列入「進階設定已自訂」提醒', async ({ page }) => {
+  await page.goto('/index.html');
+  await page.locator('[data-preset="3"]').click();
+  await page.locator('#s-rules-adv summary').click();
+  await page.selectOption('#s-capmode', 'shared');
+  await page.fill('#s-maxpos', '2'); await page.fill('#s-risk', '1');
+  await expect(page.getByTestId('adv-note')).toContainText('共用資金池·最多 2 檔');
+  await page.selectOption('#days', '90'); await page.selectOption('#s-budget', '30'); await page.fill('#s-min', '3');
+  await page.locator('#btn-search').click();
+  await expect(page.getByTestId('champ-netReturn')).toBeVisible({ timeout: 90000 });
+  await expect(page.locator('#r-champions')).toContainText('共用資金池·最多 2 檔');
+  await page.locator('#adv-reset').click();
+  await expect(page.locator('#s-capmode')).toHaveValue('sleeve');
+  await expect(page.getByTestId('adv-note')).toBeHidden();
+});
+
+test('參數敏感度：熱度圖、基準格標示、高原／孤島判斷與單一參數掃描', async ({ page }) => {
+  await page.goto('/index.html');
+  await page.locator('#tab-manual').click();
+  await page.selectOption('#m-template', 'overbought');
+  await page.selectOption('#days', '90');
+  await page.locator('#btn-manual').click();
+  await expect(page.getByTestId('compare')).toBeVisible({ timeout: 60000 });
+  await page.locator('[data-ctab="sens"]').click();
+  const sum = page.getByTestId('sens-summary');
+  await expect(sum).toBeVisible({ timeout: 60000 });
+  await expect(sum).toContainText('參數敏感度');
+  await expect(page.locator('#sens table.sens td.base')).not.toHaveCount(0);
+  await expect(page.locator('#sens')).toContainText('樣本外只能用來檢驗');
+  await expect(page.getByTestId('sens-params')).toContainText('槓桿');
+  await expect(page.getByTestId('sens-params')).toContainText('RSI');
+  // 重新切換分頁不會再重算（直接顯示）
+  await page.locator('[data-ctab="trades"]').click();
+  await page.locator('[data-ctab="sens"]').click();
+  await expect(page.getByTestId('sens-summary')).toBeVisible();
+});
+
+test('走動式驗證：多折、串接曲線、每折冠軍、可取消', async ({ page }) => {
+  await page.goto('/index.html');
+  await page.selectOption('#days', '365');
+  await page.selectOption('#s-budget', '30'); await page.fill('#s-min', '3');
+  await page.locator('#wf-adv summary').click();
+  await page.selectOption('#wf-folds', '3');
+  await page.locator('#btn-wf').click();
+  const wf = page.getByTestId('wf');
+  await expect(wf).toBeVisible({ timeout: 120000 });
+  await expect(wf.locator('h2')).toContainText('結果');
+  await expect(page.getByTestId('wf-folds').locator('tbody tr')).toHaveCount(3);
+  await expect(page.getByTestId('wf-summary')).toContainText('串接後淨報酬');
+  await expect(page.getByTestId('wf-summary')).toContainText('同期買入持有');
+  await expect(page.getByTestId('wf-verdict')).toContainText('走動式驗證驗證的是整套流程');
+  await expect(page.locator('#wf-chart canvas').first()).toBeVisible();
+  await expect(page.locator('.card.charts')).toBeHidden();
+  // 回到一般搜尋：走動式結果會被收起
+  await page.locator('#btn-search').click();
+  await expect(page.getByTestId('champ-netReturn')).toBeVisible({ timeout: 90000 });
+  await expect(wf).toBeHidden();
+});
+
+test('走動式驗證可取消', async ({ page }) => {
+  await page.goto('/index.html');
+  await page.selectOption('#days', '365');
+  await page.selectOption('#base-tf', '15m');
+  await page.selectOption('#s-budget', '300'); await page.selectOption('#s-maxc', '4'); await page.fill('#s-min', '3');
+  await page.locator('#wf-adv summary').click();
+  await page.selectOption('#wf-folds', '6');
+  await page.locator('#btn-wf').click();
+  await expect(page.locator('#search-progress .ptext')).toContainText('折', { timeout: 120000 });
+  await page.locator('#btn-cancel').click();
+  await expect(page.locator('#run-error')).toContainText('已取消', { timeout: 20000 });
+  await expect(page.locator('#btn-wf')).toBeEnabled();
+});

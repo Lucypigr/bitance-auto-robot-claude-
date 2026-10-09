@@ -191,6 +191,16 @@
           </div>
           <label class="check"><input id="s-opp" type="checkbox"> <span data-term="opposite_conditions">允許逆向條件</span></label>
         </details>
+        <details class="adv" id="s-rules-adv">
+          <summary>進階：部位規則（資金池、同時持倉數、風險比例）</summary>
+          <div class="grid2">
+            <div class="field"><label class="label" for="s-capmode"><span data-term="capital_mode">資金模式</span></label>
+              <select id="s-capmode"><option value="sleeve" selected>各標的獨立資金袋</option><option value="shared">共用資金池</option></select></div>
+            <div class="field" id="s-maxpos-field"><label class="label" for="s-maxpos"><span data-term="max_pos">同時最多持倉</span>（檔）</label><input id="s-maxpos" type="number" min="1" step="1" value="1"></div>
+            <div class="field"><label class="label" for="s-risk"><span data-term="risk_sizing">每筆風險</span>（帳戶淨值 %，0＝不用）</label><input id="s-risk" type="number" min="0" max="100" step="0.1" value="0"></div>
+          </div>
+          <div class="muted small">每筆風險需要所有候選都有停損（搜尋的停損範圍預設已有）。</div>
+        </details>
         <details class="adv" id="pool-adv">
           <summary>自訂搜尋的指標池（<span id="pool-count"></span>）</summary>
           <p class="muted small"><span data-term="indicator_pool">指標池</span>＝自動搜尋可以挑選的條件。預設包含 RSI、EMA／MACD 交叉、布林通道與全部 9 種 K 線型態；你可以另外勾選其他指標，或只留下想研究的。</p>
@@ -201,6 +211,16 @@
           <b>進階設定目前不是預設值：</b><span id="adv-list"></span>
           <div style="margin-top:6px"><button type="button" class="btn small" id="adv-reset">一鍵恢復全部進階預設</button></div>
         </div>
+        <details class="adv" id="wf-adv">
+          <summary>進階：走動式驗證（Walk-forward）</summary>
+          <p class="muted small"><span data-term="walk_forward">走動式驗證</span>會把資料切成多折，每折只用「該折訓練期」重新搜尋、挑冠軍，再交易緊接的測試期，最後串起來看。使用上面所有搜尋設定（候選數、條件、停損停利範圍…）。</p>
+          <div class="grid2">
+            <div class="field"><label class="label" for="wf-folds">折數</label><select id="wf-folds"><option>3</option><option selected>4</option><option>5</option><option>6</option></select></div>
+            <div class="field"><label class="label" for="wf-ratio">訓練 ： 測試</label><select id="wf-ratio"><option value="2">2 ： 1</option><option value="3" selected>3 ： 1</option><option value="4">4 ： 1</option></select></div>
+            <div class="field"><label class="label" for="wf-follow">每折採用的冠軍</label><select id="wf-follow"><option value="stable" selected>最穩定</option><option value="netReturn">最高淨報酬</option><option value="winRate">最高勝率</option></select></div>
+          </div>
+          <button id="btn-wf" class="btn block" type="button">開始走動式驗證</button>
+        </details>
         <div class="row gap">
           <button id="btn-search" class="btn primary grow" type="button">開始搜尋</button>
           <button id="btn-cancel" class="btn danger" type="button" hidden>取消</button>
@@ -222,7 +242,7 @@
           </div>
         </div>
         <div class="field">
-          <div class="label">進場條件 <span class="muted">（全部成立才進場，AND）</span></div>
+          <div class="label">進場條件 <span class="muted">（預設全部成立才進場＝<span data-term="cond_logic">且</span>；也可以設成「或」群組、或勾「非」）</span></div>
           <div id="m-entry"></div>
           <button type="button" class="btn small" id="m-add-entry">＋ 新增條件</button>
           <div id="m-summary" class="note info"></div>
@@ -242,6 +262,16 @@
           <div class="field"><label class="label" for="m-entrymode"><span data-term="entry_mode">進場方式</span></label>
             <select id="m-entrymode"><option value="edge" selected>條件剛成立才進場</option><option value="level">成立期間都可進場</option></select></div>
         </div>
+        <details class="adv" id="m-rules-adv">
+          <summary>進階：部位規則（資金池、同時持倉數、風險比例）</summary>
+          <div class="grid2">
+            <div class="field"><label class="label" for="m-capmode"><span data-term="capital_mode">資金模式</span></label>
+              <select id="m-capmode"><option value="sleeve" selected>各標的獨立資金袋</option><option value="shared">共用資金池</option></select></div>
+            <div class="field" id="m-maxpos-field"><label class="label" for="m-maxpos"><span data-term="max_pos">同時最多持倉</span>（檔）</label><input id="m-maxpos" type="number" min="1" step="1" value="1"></div>
+            <div class="field"><label class="label" for="m-risk"><span data-term="risk_sizing">每筆風險</span>（帳戶淨值 %，0＝不用）</label><input id="m-risk" type="number" min="0" max="100" step="0.1" value="0"></div>
+          </div>
+          <div class="muted small">風險比例需要先設定停損（%）。部位大小＝讓「停損時剛好虧到帳戶淨值的這個 %」，仍受「每筆投入比例」上限限制。</div>
+        </details>
         <details class="adv">
           <summary>進階：出場條件（任一成立就在下一根開盤出場）</summary>
           <div id="m-exit"></div>
@@ -262,6 +292,7 @@
 
     <div id="result-body" hidden>
       <div id="r-title" class="card result-head"></div>
+      <div id="r-wf" class="card" hidden data-testid="wf"></div>
       <div id="r-champions" class="champions" hidden></div>
       <div id="r-verdict" class="card"></div>
       <div id="r-compare" class="card"></div>
@@ -273,6 +304,7 @@
           <button type="button" class="tab" role="tab" data-ctab="equity" aria-selected="false">淨值曲線</button>
           <button type="button" class="tab" role="tab" data-ctab="drawdown" aria-selected="false">回撤</button>
           <button type="button" class="tab" role="tab" data-ctab="monthly" aria-selected="false">每月報酬</button>
+          <button type="button" class="tab" role="tab" data-ctab="sens" aria-selected="false" id="tab-sens">參數敏感度</button>
           <button type="button" class="tab" role="tab" data-ctab="trades" aria-selected="false">逐筆交易</button>
           <button type="button" class="tab" role="tab" data-ctab="board" aria-selected="false" id="tab-board" hidden>候選排行榜</button>
         </div>
@@ -290,6 +322,7 @@
         <div id="ctab-equity" class="ctab" hidden><div id="equity-chart" class="chart-box"></div><div class="muted small" id="equity-legend"></div></div>
         <div id="ctab-drawdown" class="ctab" hidden><div id="dd-chart" class="chart-box"></div></div>
         <div id="ctab-monthly" class="ctab" hidden><div id="monthly"></div></div>
+        <div id="ctab-sens" class="ctab" hidden><div id="sens"></div></div>
         <div id="ctab-trades" class="ctab" hidden><div id="trades"></div></div>
         <div id="ctab-board" class="ctab" hidden><div id="board"></div></div>
       </div>

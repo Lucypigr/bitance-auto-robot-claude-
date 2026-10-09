@@ -2,7 +2,7 @@
 // 防過度擬合：候選評分與冠軍選擇「只」使用訓練期(前 70%)結果；
 // 樣本外(後 30%)只在冠軍確定後才計算，用來驗證，絕不回頭影響選擇。
 import { makeRng, shuffleInPlace, lowerBound } from './util.js';
-import { specKey, describeSpec, CONDITIONS } from './conditions.js';
+import { specKey, describeEntry, CONDITIONS } from './conditions.js';
 import { runStrategy } from './portfolio.js';
 import { stabilityScore } from './metrics.js';
 import { splitRanges } from './dataset.js';
@@ -26,6 +26,9 @@ export const SEARCH_DEFAULTS = {
   trainFrac: 0.7,
   variantsPerSet: 3,
   unit: 'pct', // 停損停利單位：pct＝價格 %；usdt＝損益 USDT 金額（需搭配 posUsdt）
+  capitalMode: 'sleeve', // sleeve＝各標的獨立資金袋；shared＝共用資金池
+  maxPos: 0, // 共用資金池：同時最多持倉數
+  riskPct: 0, // 風險比例定位：每筆停損時最多虧帳戶淨值的 %（0＝不用）
   cur: 'USDT', // 金額單位（台股為 TWD）
   posUsdt: 0, // 每筆固定投入的保證金（USDT），0＝用資金比例
   pool: null, // 自訂指標池（條件 id 清單）；null = DEFAULT_POOL
@@ -71,18 +74,18 @@ export function buildAtomSlots(dir, tfs, cfg) {
 }
 
 export function strategyKey(st) {
-  return `${st.dir}|${st.entry.map(specKey).sort().join('&')}|sl${st.sl}|tp${st.tp}|x${st.lev}|${st.unit || 'pct'}|${st.posUsdt || 0}`;
+  return `${st.dir}|${st.entry.map(specKey).sort().join('&')}|sl${st.sl}|tp${st.tp}|x${st.lev}|${st.unit || 'pct'}|${st.posUsdt || 0}|${st.capitalMode || 'sleeve'}${st.maxPos || 0}|${st.riskPct || 0}`;
 }
 
 export function describeStrategy(st) {
   const dir = st.dir === 'long' ? '做多' : '做空';
-  const cond = st.entry.map(describeSpec).join(' 且 ');
+  const cond = describeEntry(st.entry);
   const exits = [];
   const u = st.unit === 'usdt' ? ` ${st.cur || 'USDT'}` : '%';
   if (st.sl) exits.push(`停損 ${st.sl}${u}`);
   if (st.tp) exits.push(`停利 ${st.tp}${u}`);
   if (st.trail) exits.push(`移動停損 ${st.trail}%`);
-  const size = st.posUsdt ? `每筆 ${st.posUsdt} ${st.cur || 'USDT'}｜` : '';
+  const size = (st.posUsdt ? `每筆 ${st.posUsdt} ${st.cur || 'USDT'}｜` : '') + (st.riskPct ? `每筆風險 ${st.riskPct}%｜` : '') + (st.capitalMode === 'shared' ? `共用資金池·最多 ${st.maxPos} 檔｜` : '');
   return `${dir}｜${cond}｜${size}${exits.join('、') || '無停損停利'}｜${st.lev}×`;
 }
 
@@ -158,7 +161,7 @@ export function generateCandidates(sig, cfgIn, train) {
       for (let i = 0; i < sets.length && candidates.length < budget; i++) {
         const specs = sets[i];
         const combo = combos[(i * cfg.variantsPerSet + round + ci) % combos.length];
-        const st = { dir, entry: specs, exit: [], entryMode: cfg.entryMode, sl: combo.sl, tp: combo.tp, trail: 0, lev: combo.lev, unit: cfg.unit || 'pct', posUsdt: cfg.posUsdt || 0, cur: cfg.cur || 'USDT' };
+        const st = { dir, entry: specs, exit: [], entryMode: cfg.entryMode, sl: combo.sl, tp: combo.tp, trail: 0, lev: combo.lev, unit: cfg.unit || 'pct', posUsdt: cfg.posUsdt || 0, cur: cfg.cur || 'USDT', capitalMode: cfg.capitalMode || 'sleeve', maxPos: cfg.maxPos || 0, riskPct: cfg.riskPct || 0 };
         const key = strategyKey(st);
         if (seenKeys.has(key)) continue;
         seenKeys.add(key);
@@ -193,7 +196,7 @@ export function selectChampions(evals, { minTrades = 20 } = {}) {
 export async function runSearch(sig, cfgIn, costs, hooks = {}) {
   const cfg = { ...SEARCH_DEFAULTS, ...cfgIn };
   const ds = sig.ds;
-  const ranges = splitRanges(ds, cfg.trainFrac);
+  const ranges = hooks.ranges || splitRanges(ds, cfg.trainFrac); // 走動式驗證會指定每一折的區間
   const emit = (info) => hooks.progress && hooks.progress(info);
   const cancelled = () => (hooks.cancelled ? hooks.cancelled() : false);
   const tick = async () => { if (hooks.yield) await hooks.yield(); };

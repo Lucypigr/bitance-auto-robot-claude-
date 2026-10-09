@@ -20,7 +20,7 @@ function themeOptions() {
     layout: { background: { type: ColorType.Solid, color: cssVar('--panel') }, textColor: cssVar('--muted'), fontFamily: 'inherit' },
     grid: { vertLines: { color: cssVar('--border') }, horzLines: { color: cssVar('--border') } },
     rightPriceScale: { borderColor: cssVar('--border') },
-    timeScale: { borderColor: cssVar('--border'), timeVisible: true, secondsVisible: false },
+    timeScale: { borderColor: cssVar('--border'), timeVisible: true, minBarSpacing: 0.01, secondsVisible: false },
     crosshair: { mode: CrosshairMode.Normal },
   };
 }
@@ -35,7 +35,14 @@ export function refreshChartTheme() {
 function base(el) {
   el.innerHTML = '';
   const chart = createChart(el, { ...themeOptions(), autoSize: true, localization: { locale: 'zh-TW' } });
-  const handle = { chart, el, destroy() { live.delete(handle); try { chart.remove(); } catch { /* ignore */ } } };
+  // 容器第一次有寬度時再 fitContent 一次：圖建立當下若容器還沒排好版（寬度 0），之後會只顯示最後一小段
+  let fitted = false;
+  const ro = typeof ResizeObserver === 'function' ? new ResizeObserver((entries) => {
+    const w = entries[0] && entries[0].contentRect.width;
+    if (!fitted && w > 50) { fitted = true; try { chart.timeScale().fitContent(); } catch { /* ignore */ } ro.disconnect(); }
+  }) : null;
+  if (ro) ro.observe(el);
+  const handle = { chart, el, destroy() { live.delete(handle); if (ro) ro.disconnect(); try { chart.remove(); } catch { /* ignore */ } } };
   live.add(handle);
   return handle;
 }

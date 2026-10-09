@@ -3,6 +3,8 @@ import { SignalEngine } from '../core/signals.js';
 import { runStrategy } from '../core/portfolio.js';
 import { runSearch, evaluateDetail } from '../core/search.js';
 import { splitRanges } from '../core/dataset.js';
+import { runSensitivity } from '../core/sensitivity.js';
+import { runWalkForward } from '../core/walkforward.js';
 
 let sig = null;
 let cancelFlag = false;
@@ -30,6 +32,20 @@ self.onmessage = async (ev) => {
       const res = evaluateDetail(sig, m.strategy, m.costs, ranges);
       const out = { ranges, train: pack(res.train), holdout: pack(res.holdout), full: pack(res.full) };
       self.postMessage({ type: 'result', reqId: m.reqId, result: out }, transferables(out));
+    } else if (m.type === 'sensitivity') {
+      cancelFlag = false;
+      const ranges = splitRanges(sig.ds, m.trainFrac ?? 0.7);
+      const out = runSensitivity(sig, m.strategy, m.costs, ranges, { progress: (p) => self.postMessage({ type: 'progress', reqId: m.reqId, progress: p }) });
+      self.postMessage({ type: 'result', reqId: m.reqId, result: out });
+    } else if (m.type === 'walkforward') {
+      cancelFlag = false;
+      const result = await runWalkForward(sig, m.config, m.costs, {
+        progress: (p) => self.postMessage({ type: 'progress', reqId: m.reqId, progress: p }),
+        cancelled: () => cancelFlag,
+        yield: yieldNow,
+      });
+      if (result.cancelled) { self.postMessage({ type: 'cancelled', reqId: m.reqId }); return; }
+      self.postMessage({ type: 'result', reqId: m.reqId, result }, [result.chain.buffer, result.bhChain.buffer]);
     } else if (m.type === 'search') {
       cancelFlag = false;
       const result = await runSearch(sig, m.config, m.costs, {

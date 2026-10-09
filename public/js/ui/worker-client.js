@@ -2,6 +2,8 @@
 import { SignalEngine } from '../core/signals.js';
 import { runSearch, evaluateDetail } from '../core/search.js';
 import { splitRanges } from '../core/dataset.js';
+import { runSensitivity } from '../core/sensitivity.js';
+import { runWalkForward } from '../core/walkforward.js';
 
 export class ComputeClient {
   constructor() {
@@ -62,6 +64,19 @@ export class ComputeClient {
       return { ranges, train: strip(r.train), holdout: strip(r.holdout), full: strip(r.full) };
     }
     return this._call({ type: 'backtest', strategy, costs, trainFrac });
+  }
+
+  async sensitivity(strategy, costs, trainFrac = 0.7, onProgress) {
+    if (this.inline) return runSensitivity(this.inline.sig, strategy, costs, splitRanges(this.inline.sig.ds, trainFrac), { progress: onProgress });
+    return this._call({ type: 'sensitivity', strategy, costs, trainFrac }, onProgress);
+  }
+
+  async walkForward(config, costs, onProgress) {
+    if (this.inline) {
+      this.inline.cancel = false;
+      return runWalkForward(this.inline.sig, config, costs, { progress: onProgress, cancelled: () => this.inline.cancel, yield: () => new Promise((r) => setTimeout(r, 0)) });
+    }
+    return this._call({ type: 'walkforward', config, costs }, onProgress);
   }
 
   async search(config, costs, onProgress) {
