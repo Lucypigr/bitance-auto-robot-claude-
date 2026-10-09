@@ -626,3 +626,68 @@ test('注意事項：免責列連結直接開到注意事項頁；自動搜尋�
   const [dl3] = await Promise.all([page.waitForEvent('download'), page.locator('[data-act="wf-chain"]').click()]);
   expect(fs.readFileSync(await dl3.path(), 'utf8')).toContain('走動式驗證淨值');
 });
+
+test('策略能力：ATR 單位＋分批出場＋加碼（手動），說明文字、交易表、K 線標記與驗證訊息', async ({ page }) => {
+  await page.goto('/index.html');
+  await page.locator('#tab-manual').click();
+  await page.selectOption('#m-template', 'atr');
+  await expect(page.locator('#m-unit')).toHaveValue('atr');
+  await expect(page.locator('#m-atr-field')).toBeVisible();
+  await expect(page.locator('#m-unit-note')).toContainText('ATR');
+  await expect(page.locator('#m-so-on')).toBeChecked();
+  await expect(page.locator('#m-summary')).toContainText('×ATR');
+  await expect(page.locator('#m-summary')).toContainText('分批出場');
+  // 加碼：順勢，需要資金 → 每筆投入比例調低
+  await page.locator('#feePct').evaluate((el) => { el.closest('details').open = true; });
+  await page.fill('#posPct', '50');
+  await page.selectOption('#m-si-mode', 'favor');
+  await page.fill('#m-si-step', '1'); await page.fill('#m-si-count', '2'); await page.fill('#m-si-size', '50');
+  await expect(page.locator('#m-summary')).toContainText('順勢加碼');
+  // 不合理：第一目標比最終停利還遠
+  await page.fill('#m-so-at', '9');
+  await page.selectOption('#days', '90');
+  await page.locator('#btn-manual').click();
+  await expect(page.locator('#run-error')).toContainText('更近');
+  await page.fill('#m-so-at', '1.5');
+  await page.locator('#btn-manual').click();
+  await expect(page.getByTestId('compare')).toBeVisible({ timeout: 60000 });
+  await expect(page.getByTestId('strategy-desc')).toContainText('分批出場');
+  await expect(page.getByTestId('strategy-desc')).toContainText('×ATR');
+  await expect(page.getByTestId('diag')).toContainText('ATR');
+});
+
+test('策略能力：雙向反手（手動）— 可設定做空條件、回測出現多空兩邊的交易與反手', async ({ page }) => {
+  await page.goto('/index.html');
+  await page.locator('#tab-manual').click();
+  await page.selectOption('#m-template', 'dual');
+  await expect(page.locator('#m-entryB-box')).toBeVisible();
+  await expect(page.locator('#m-entryB .cond')).toHaveCount(1);
+  await expect(page.locator('#m-summary')).toContainText('反向開倉');
+  // 把 RSI 門檻放寬，讓兩邊訊號都夠多
+  await page.locator('#m-entry .c-param[data-k="level"]').fill('45');
+  await page.locator('#m-entryB .c-param[data-k="level"]').fill('55');
+  await page.selectOption('#days', '90');
+  await page.locator('#btn-manual').click();
+  await expect(page.getByTestId('compare')).toBeVisible({ timeout: 60000 });
+  await expect(page.getByTestId('strategy-desc')).toContainText('雙向反手');
+  await page.locator('[data-ctab="trades"]').click();
+  await expect(page.getByTestId('trades')).toContainText('反手');
+  await expect(page.getByTestId('trades')).toContainText('做空');
+  await expect(page.getByTestId('trades')).toContainText('做多');
+  // 現貨不支援雙向
+  await page.locator('[data-market="spot"]').click();
+  await expect(page.locator('[data-dir="both"]')).toBeDisabled();
+});
+
+test('策略能力：自動搜尋可用 ATR 倍數單位（預設倍數），冠軍描述含 ×ATR', async ({ page }) => {
+  await page.goto('/index.html');
+  await page.locator('[data-preset="3"]').click();
+  await page.locator('#pane-search details.adv').first().locator('summary').click();
+  await page.selectOption('#s-unit', 'atr');
+  await expect(page.locator('#s-unit-note')).toContainText('ATR 模式');
+  await expect(page.getByTestId('adv-note')).toContainText('ATR 倍數');
+  await page.selectOption('#days', '90'); await page.selectOption('#s-budget', '30'); await page.fill('#s-min', '3');
+  await page.locator('#btn-search').click();
+  await expect(page.getByTestId('champ-netReturn')).toBeVisible({ timeout: 90000 });
+  await expect(page.locator('#r-champions')).toContainText('×ATR');
+});

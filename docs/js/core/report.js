@@ -26,16 +26,16 @@ export function stamp(ds, ms) {
   return ds.times ? day : `${day} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`;
 }
 
-const REASON = { tp: '停利', sl: '停損', trail: '移動停損', liq: '清算', signal: '出場訊號', time: '持倉期滿', end: '區間結束' };
+const REASON = { tp: '停利', sl: '停損', trail: '移動停損', be: '保本出場', reverse: '反手', liq: '清算', signal: '出場訊號', time: '持倉期滿', end: '區間結束' };
 
 export function tradesRows(res, ds) {
   const tag = (list, seg) => list.map((t) => ({ ...t, seg }));
   const trades = [...tag(res.train.trades, '訓練'), ...tag(res.holdout.trades, '樣本外')].sort((a, b) => a.exitIdx - b.exitIdx || a.entryIdx - b.entryIdx);
   const cur = ds.times ? 'TWD' : 'USDT';
-  const rows = [['#', '期間', '代號', '名稱', '方向', `進場時間(UTC${ds.times ? '，日期' : ''})`, '進場價', '出場時間(UTC)', '出場價', '出場原因', 'K數', '槓桿', `手續費(${cur})`, `Funding(${cur})`, `淨損益(${cur})`, '報酬率']];
+  const rows = [['#', '期間', '代號', '名稱', '方向', `進場時間(UTC${ds.times ? '，日期' : ''})`, '進場價', '出場時間(UTC)', '出場價', '出場原因', '加碼次數', '分批出場次數', 'K數', '槓桿', `手續費(${cur})`, `Funding(${cur})`, `淨損益(${cur})`, '報酬率']];
   trades.forEach((t, i) => {
     const S = ds.symbols.find((s) => s.symbol === t.symbol);
-    rows.push([i + 1, t.seg, t.symbol, (S && S.name) || '', t.dir > 0 ? '做多' : '做空', stamp(ds, t.entryTime), t.entryPrice, stamp(ds, t.exitTime), t.exitPrice, REASON[t.reason] || t.reason, t.bars, t.lev, t.fee, t.funding, t.pnl, t.ret]);
+    rows.push([i + 1, t.seg, t.symbol, (S && S.name) || '', t.dir > 0 ? '做多' : '做空', stamp(ds, t.entryTime), t.entryPrice, stamp(ds, t.exitTime), t.exitPrice, REASON[t.reason] || t.reason, t.legs ? t.legs.filter((x) => x.kind === 'add').length : 0, t.legs ? t.legs.filter((x) => x.kind === 'partial').length : 0, t.bars, t.lev, t.fee, t.funding, t.pnl, t.ret]);
   });
   return rows;
 }

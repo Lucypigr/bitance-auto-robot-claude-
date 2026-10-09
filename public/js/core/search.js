@@ -2,7 +2,8 @@
 // 防過度擬合：候選評分與冠軍選擇「只」使用訓練期(前 70%)結果；
 // 樣本外(後 30%)只在冠軍確定後才計算，用來驗證，絕不回頭影響選擇。
 import { makeRng, shuffleInPlace, lowerBound } from './util.js';
-import { specKey, describeEntry, CONDITIONS, PARAM_GRID } from './conditions.js';
+import { specKey, CONDITIONS, PARAM_GRID } from './conditions.js';
+import { directionText, conditionText, exitParts } from './describe.js';
 import { runStrategy } from './portfolio.js';
 import { stabilityScore } from './metrics.js';
 import { splitRanges } from './dataset.js';
@@ -89,13 +90,9 @@ export function strategyKey(st) {
 }
 
 export function describeStrategy(st) {
-  const dir = st.dir === 'long' ? '做多' : '做空';
-  const cond = describeEntry(st.entry);
-  const exits = [];
-  const u = st.unit === 'usdt' ? ` ${st.cur || 'USDT'}` : '%';
-  if (st.sl) exits.push(`停損 ${st.sl}${u}`);
-  if (st.tp) exits.push(`停利 ${st.tp}${u}`);
-  if (st.trail) exits.push(`移動停損 ${st.trail}%`);
+  const dir = directionText(st);
+  const cond = conditionText(st);
+  const exits = exitParts(st);
   const size = (st.posUsdt ? `每筆 ${st.posUsdt} ${st.cur || 'USDT'}｜` : '') + (st.riskPct ? `每筆風險 ${st.riskPct}%｜` : '') + (st.capitalMode === 'shared' ? `共用資金池·最多 ${st.maxPos} 檔｜` : '');
   return `${dir}｜${cond}｜${size}${exits.join('、') || '無停損停利'}｜${st.lev}×`;
 }
@@ -172,7 +169,7 @@ export function generateCandidates(sig, cfgIn, train) {
       for (let i = 0; i < sets.length && candidates.length < budget; i++) {
         const specs = sets[i];
         const combo = combos[(i * cfg.variantsPerSet + round + ci) % combos.length];
-        const st = { dir, entry: specs, exit: [], entryMode: cfg.entryMode, sl: combo.sl, tp: combo.tp, trail: 0, lev: combo.lev, unit: cfg.unit || 'pct', posUsdt: cfg.posUsdt || 0, cur: cfg.cur || 'USDT', capitalMode: cfg.capitalMode || 'sleeve', maxPos: cfg.maxPos || 0, riskPct: cfg.riskPct || 0 };
+        const st = { dir, entry: specs, exit: [], entryMode: cfg.entryMode, sl: combo.sl, tp: combo.tp, trail: 0, lev: combo.lev, unit: cfg.unit || 'pct', posUsdt: cfg.posUsdt || 0, atrPeriod: cfg.atrPeriod || 14, cur: cfg.cur || 'USDT', capitalMode: cfg.capitalMode || 'sleeve', maxPos: cfg.maxPos || 0, riskPct: cfg.riskPct || 0 };
         const key = strategyKey(st);
         if (seenKeys.has(key)) continue;
         seenKeys.add(key);

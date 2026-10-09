@@ -8,7 +8,13 @@ import { CONDITIONS, describeSpec, specKey } from '../core/conditions.js';
 import { risingEdges } from '../core/signals.js';
 import { symbolBreakdown } from '../core/breakdown.js';
 
-const REASON = { tp: '停利', sl: '停損', trail: '移動停損', liq: '清算', signal: '出場訊號', time: '持倉期滿', end: '區間結束' };
+const REASON = { tp: '停利', sl: '停損', trail: '移動停損', be: '保本出場', reverse: '反手', liq: '清算', signal: '出場訊號', time: '持倉期滿', end: '區間結束' };
+const legsText = (t) => {
+  if (!t.legs) return '';
+  const a = t.legs.filter((x) => x.kind === 'add').length;
+  const p = t.legs.filter((x) => x.kind === 'partial').length;
+  return `（${[a ? `加碼 ${a}` : '', p ? `分批出場 ${p}` : ''].filter(Boolean).join('、')}）`;
+};
 const pfText = (pf) => (Number.isFinite(pf) ? fmtNum(pf) : pf > 0 ? '∞' : '—');
 
 // ---------------- 績效比較表 ----------------
@@ -187,7 +193,7 @@ export function renderTrades(el, res, ds, view) {
   const rows = slice.map((t, i) => `<tr>
     <td>${view.page * per + i + 1}</td><td>${t.seg}</td><td>${esc(symLabel(ds, t.symbol))}</td><td class="${t.dir > 0 ? 'pos' : 'neg'}">${t.dir > 0 ? '做多' : '做空'}</td>
     <td>${fmtStamp(ds, t.entryTime)}</td><td>${fmtPrice(t.entryPrice)}</td><td>${fmtStamp(ds, t.exitTime)}</td><td>${fmtPrice(t.exitPrice)}</td>
-    <td>${REASON[t.reason] || t.reason}</td><td>${t.bars}</td><td>${t.lev}×</td><td>${fmtMoney(t.fee)}</td><td class="${signClass(t.funding)}">${fmtMoney(t.funding, 2, true)}</td>
+    <td>${REASON[t.reason] || t.reason}${legsText(t)}</td><td>${t.bars}</td><td>${t.lev}×</td><td>${fmtMoney(t.fee)}</td><td class="${signClass(t.funding)}">${fmtMoney(t.funding, 2, true)}</td>
     <td class="${signClass(t.pnl)}">${fmtMoney(t.pnl, 2, true)}</td><td class="${signClass(t.ret)}">${fmtPct(t.ret, 2, true)}</td></tr>`).join('');
   el.innerHTML = `<div class="chart-tools">
       <label>期間 <select id="tr-seg"><option value="">全部</option><option ${view.seg === '訓練' ? 'selected' : ''}>訓練</option><option ${view.seg === '樣本外' ? 'selected' : ''}>樣本外</option></select></label>
@@ -336,7 +342,8 @@ export function buildCandleChart(el, { ds, sig, res, strategy, si, show, legendE
       legend.push(`${label} ${describeSpec(sp)}`);
     });
     const all = sig.entryIdx(si, strategy.entry, strategy.entryMode || 'edge');
-    for (const i of all) if (i >= from) markers.push({ time: tAt(i), position: strategy.dir === 'short' ? 'aboveBar' : 'belowBar', color: cssVar('--accent'), shape: 'square', text: '訊號', size: 0.8 });
+    for (const i of all) if (i >= from) markers.push({ time: tAt(i), position: strategy.dir === 'short' ? 'aboveBar' : 'belowBar', color: cssVar('--accent'), shape: 'square', text: strategy.dir === 'both' ? '多訊號' : '訊號', size: 0.8 });
+    if (strategy.dir === 'both') for (const i of sig.entryIdx(si, strategy.entryB || [], strategy.entryMode || 'edge')) if (i >= from) markers.push({ time: tAt(i), position: 'aboveBar', color: cssVar('--accent'), shape: 'square', text: '空訊號', size: 0.8 });
   }
   if (show.trade) {
     const upC = cssVar('--up'); const dnC = cssVar('--down');
@@ -345,6 +352,7 @@ export function buildCandleChart(el, { ds, sig, res, strategy, si, show, legendE
         if (t.symbol !== S.symbol) continue;
         markers.push({ time: tAt(t.entryIdx), position: t.dir > 0 ? 'belowBar' : 'aboveBar', color: t.dir > 0 ? upC : dnC, shape: t.dir > 0 ? 'arrowUp' : 'arrowDown', text: `${t.dir > 0 ? '多' : '空'}${t.lev > 1 ? t.lev + '×' : ''}` });
         markers.push({ time: tAt(t.exitIdx), position: t.dir > 0 ? 'aboveBar' : 'belowBar', color: t.pnl >= 0 ? upC : dnC, shape: 'circle', text: REASON[t.reason] || '' });
+        for (const lg of t.legs || []) markers.push({ time: tAt(lg.idx), position: t.dir > 0 ? 'aboveBar' : 'belowBar', color: '#a855f7', shape: 'circle', text: lg.kind === 'add' ? '加碼' : '分批出場', size: 0.7 });
       }
     }
     const splitIdx = res.ranges.splitIdx;
