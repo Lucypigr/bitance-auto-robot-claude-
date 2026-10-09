@@ -69,3 +69,21 @@ test('ⓘ 說明含指標／K 線型態的示意圖；手動條件列與指標�
   await kd.click();
   await expect(pop.locator('figure.pop-illus svg')).toBeVisible();
 });
+
+test('新手篇：可開啟、翻頁、鍵盤關閉；一鍵示範會開始搜尋', async ({ page }) => {
+  await page.goto('/index.html');
+  await page.locator('#btn-tutorial').click();
+  const dlg = page.getByTestId('tutorial');
+  await expect(dlg).toBeVisible();
+  await expect(dlg).toContainText('回測是什麼');
+  await expect(dlg.locator('.ibtn').first()).toBeAttached();
+  await dlg.locator('.tut-next').click();
+  await expect(dlg).toContainText('第一次操作');
+  await page.keyboard.press('Escape');
+  await expect(dlg).toBeHidden();
+  await page.locator('#btn-tutorial2').click();
+  await dlg.locator('.tut-dot').nth(1).click();
+  await dlg.locator('[data-tut-demo]').click();
+  await expect(dlg).toBeHidden();
+  await expect(page.locator('#r-title')).toBeVisible({ timeout: 120000 });
+});

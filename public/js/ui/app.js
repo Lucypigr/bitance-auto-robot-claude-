@@ -12,6 +12,7 @@ import { TEMPLATES, defaultCondition, renderConditionList, bindConditionList, de
 import * as R from './results.js';
 import { diagnoseStrategy, diagnoseSearch } from '../core/diagnose.js';
 import { fmtMoney, fmtPct } from './format.js';
+import { initTutorial } from './tutorial.js';
 
 const $ = (id) => document.getElementById(id);
 const MAX_SYMBOLS = 15;
@@ -852,6 +853,7 @@ async function init() {
   initTheme();
   initInfo();
   decorate(document);
+  initTutorial({ demo: () => runDemo() });
   const s = loadSettings();
   if (s.costs) {
     $('capital').value = s.costs.capital ?? 10000; $('posPct').value = s.costs.posPct ?? 100;
