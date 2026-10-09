@@ -1,4 +1,5 @@
 // 多幣種投組：資金平均分配給每個幣種（各自獨立的資金袋），再把淨值曲線相加。
+import { validateSpec } from './conditions.js';
 import { simulateSymbol, simulatePool } from './engine.js';
 import { computeMetrics } from './metrics.js';
 
@@ -35,6 +36,10 @@ export function strategyToCfg(strategy, costs, market) {
 }
 
 export function validateStrategy(ds, strategy) {
+  for (const sp of [...(strategy.entry || []), ...(strategy.exit || [])]) {
+    const e = validateSpec(sp);
+    if (e) throw new Error(e);
+  }
   if (ds.market !== 'perp') {
     if (strategy.dir === 'short') throw new Error(ds.market === 'tw' ? '台股不支援做空' : '現貨市場無法做空');
     if ((strategy.lev || 1) !== 1) throw new Error('現貨市場不支援槓桿');

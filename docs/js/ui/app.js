@@ -3,12 +3,12 @@ import { BinanceClient, IdbStore, MemoryStore, loadMarketData, sortSymbols } fro
 import { FinMindClient, loadTwData, twseQuotes } from '../data/finmind.js';
 import { buildDataset, buildTwDataset } from '../core/dataset.js';
 import { SignalEngine } from '../core/signals.js';
-import { normalizeSpec, describeSpec, conditionGroups, CONDITIONS } from '../core/conditions.js';
+import { normalizeSpec, describeSpec, conditionGroups, CONDITIONS, validateSpec } from '../core/conditions.js';
 import { describeStrategy, DEFAULT_POOL } from '../core/search.js';
 import { TIMEFRAMES, TF_LABEL, TF_MS, DAY, tfIndex, timeAt } from '../core/util.js';
 import { ComputeClient } from './worker-client.js';
 import { refreshChartTheme, destroyAll, candleChart, chartTime } from './charts.js';
-import { TEMPLATES, defaultCondition, renderConditionList, bindConditionList, describeManual } from './strategy-form.js';
+import { TEMPLATES, defaultCondition, renderConditionList, bindConditionList, softUpdateConditionList, describeManual } from './strategy-form.js';
 import * as R from './results.js';
 import { diagnoseStrategy, diagnoseSearch } from '../core/diagnose.js';
 import { fmtMoney, fmtPct } from './format.js';
@@ -322,6 +322,7 @@ function advancedChanges() {
   if (Number($('s-seed').value) !== DEF_SEED) out.push(`亂數種子＝${$('s-seed').value}`);
   if ($('s-entrymode').value !== 'edge') out.push('進場方式＝成立期間都可進場');
   if ($('s-opp').checked) out.push('允許逆向條件');
+  if ($('s-psearch').checked) out.push('同時搜尋指標參數');
   if ($('s-capmode').value === 'shared') out.push(`共用資金池·最多 ${$('s-maxpos').value} 檔`);
   if ((Number($('s-risk').value) || 0) > 0) out.push(`每筆風險 ${$('s-risk').value}%`);
   const pool = readChecks('s-pool');
@@ -336,7 +337,7 @@ function refreshAdvNote() {
 function resetAdvanced() {
   $('s-unit').value = 'pct'; $('s-usdt').value = 0;
   $('s-sl-custom').value = ''; $('s-tp-custom').value = '';
-  $('s-seed').value = DEF_SEED; $('s-entrymode').value = 'edge'; $('s-opp').checked = false;
+  $('s-seed').value = DEF_SEED; $('s-entrymode').value = 'edge'; $('s-opp').checked = false; $('s-psearch').checked = false; $('s-psearch-note').hidden = true;
   $('s-capmode').value = 'sleeve'; $('s-maxpos').value = 1; $('s-risk').value = 0; $('s-maxpos-field').hidden = true;
   $('s-unit-note').hidden = true;
   Object.assign(state.search, { sl: DEF_SL.slice(), tp: DEF_TP.slice(), lev: DEF_LEV.slice(), pool: DEFAULT_POOL.slice() });
@@ -376,6 +377,7 @@ function readSearchConfig() {
     maxConditions: Number($('s-maxc').value), budget: Number($('s-budget').value),
     tfs, minTrades, slList: sl, tpList: tp, levList: state.market === 'spot' ? [1] : (lev.length ? lev : [1]),
     seed: Number($('s-seed').value) || 1, entryMode: $('s-entrymode').value, allowOpposite: $('s-opp').checked,
+    paramSearch: $('s-psearch').checked ? 'grid' : 'fixed',
   };
   Object.assign(state.search, { sl, tp, lev, tfs });
   return cfg;
@@ -387,10 +389,15 @@ function setDir(d) {
   document.querySelectorAll('[data-dir]').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.dir === d)));
   renderManual();
 }
-function renderManual() {
+function renderManual(soft = false) {
   const m = state.manual;
-  renderConditionList($('m-entry'), m.entry, state.baseTf);
-  renderConditionList($('m-exit'), m.exit, state.baseTf, { groups: false });
+  if (soft === true) {
+    softUpdateConditionList($('m-entry'), m.entry, state.baseTf);
+    softUpdateConditionList($('m-exit'), m.exit, state.baseTf, { groups: false });
+  } else {
+    renderConditionList($('m-entry'), m.entry, state.baseTf);
+    renderConditionList($('m-exit'), m.exit, state.baseTf, { groups: false });
+  }
   $('m-summary').innerHTML = esc(describeManual(readManualStrategy(true)));
   decorate($('pane-manual'));
 }
@@ -406,6 +413,7 @@ function readManualStrategy(soft = false) {
   m.entryMode = $('m-entrymode').value;
   const fix = (c) => { const n = normalizeSpec(c); if (tfIndex(n.tf) < tfIndex(state.baseTf)) n.tf = state.baseTf; return n; };
   const st = { dir: m.dir, entry: m.entry.map(fix), exit: m.exit.map(fix), entryMode: m.entryMode, lev: m.lev, cur: CUR(), capitalMode: m.capitalMode, maxPos: m.capitalMode === 'shared' ? m.maxPos : 0, riskPct: m.riskPct, unit: m.unit, posUsdt: m.posUsdt, sl: m.sl, tp: m.tp, trail: m.trail, maxBars: m.maxBars };
+  if (!soft) for (const sp of [...m.entry, ...m.exit]) { const e = validateSpec(sp); if (e) throw new Error(e); }
   if (!soft && !st.entry.length) throw new Error('請至少新增一個進場條件');
   if (!soft && st.riskPct > 0 && (!(st.sl > 0) || st.unit === 'usdt')) throw new Error('每筆風險需要設定「價格 %」的停損');
   if (!soft && st.unit === 'usdt' && !(st.posUsdt > 0)) throw new Error('USDT 模式需要填寫「每筆投入」金額（例如 6）');
@@ -791,6 +799,7 @@ function bind() {
   $('pool-default').addEventListener('click', () => setPool(DEFAULT_POOL.slice()));
   $('pool-all').addEventListener('click', () => setPool(Object.keys(CONDITIONS)));
   $('pool-none').addEventListener('click', () => setPool([]));
+  $('s-psearch').addEventListener('change', () => { $('s-psearch-note').hidden = !$('s-psearch').checked; });
   $('s-pool').addEventListener('change', () => { state.search.pool = readChecks('s-pool'); $('pool-count').textContent = `已選 ${state.search.pool.length} 個條件`; });
   $('btn-search').addEventListener('click', runSearch);
   $('btn-wf').addEventListener('click', runWalk);
@@ -804,8 +813,8 @@ function bind() {
   document.querySelectorAll('[data-dir]').forEach((b) => b.addEventListener('click', () => { if (!b.disabled) setDir(b.dataset.dir); }));
   $('m-add-entry').addEventListener('click', () => { state.manual.entry = [...state.manual.entry, defaultCondition(state.baseTf)]; renderManual(); });
   $('m-add-exit').addEventListener('click', () => { state.manual.exit = [...state.manual.exit, { ...defaultCondition(state.baseTf), id: 'rsi_overbought' }]; renderManual(); });
-  bindConditionList($('m-entry'), () => state.manual.entry, (l) => { state.manual.entry = l; renderManual(); });
-  bindConditionList($('m-exit'), () => state.manual.exit, (l) => { state.manual.exit = l; renderManual(); });
+  bindConditionList($('m-entry'), () => state.manual.entry, (l, o) => { state.manual.entry = l; renderManual(!!(o && o.soft)); });
+  bindConditionList($('m-exit'), () => state.manual.exit, (l, o) => { state.manual.exit = l; renderManual(!!(o && o.soft)); });
   for (const id of ['m-sl', 'm-tp', 'm-trail', 'm-maxbars', 'm-entrymode', 'm-unit', 'm-usdt', 'm-capmode', 'm-maxpos', 'm-risk']) $(id).addEventListener('input', renderManual);
   $('m-lev').addEventListener('input', (e) => { $('m-lev-out').textContent = `${e.target.value}×`; renderManual(); });
 

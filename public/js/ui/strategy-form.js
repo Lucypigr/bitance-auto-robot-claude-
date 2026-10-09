@@ -1,5 +1,5 @@
 // 手動策略：條件列的渲染與範本
-import { CONDITIONS, conditionGroups, describeSpec, describeEntry, normalizeSpec } from '../core/conditions.js';
+import { CONDITIONS, conditionGroups, describeSpec, describeEntry, normalizeSpec, validateSpec } from '../core/conditions.js';
 import { TIMEFRAMES, TF_LABEL, tfIndex } from '../core/util.js';
 import { term, esc } from './info.js';
 import { illustration } from './illustrations.js';
@@ -69,8 +69,14 @@ export function renderConditionList(container, list, baseTf, { groups = true } =
   container.innerHTML = list.map((raw, i) => {
     const c = normalizeSpec(raw);
     const def = CONDITIONS[c.id];
-    const fields = def.fields.map((f) => `<label>${esc(f.label)} <select data-k="${f.key}" data-i="${i}" class="c-param">${
-      f.options.map((o) => `<option value="${o}" ${String(o) === String(c.params[f.key]) ? 'selected' : ''}>${o}</option>`).join('')}</select></label>`).join('');
+    // 參數：可直接輸入任意數字（有範圍限制），也可以從建議值挑（datalist）
+    const given = (raw.params || {});
+    const fields = def.fields.map((f) => {
+      const v = given[f.key] !== undefined && given[f.key] !== '' ? given[f.key] : c.params[f.key];
+      const dl = `dl-${i}-${f.key}`;
+      return `<label>${esc(f.label)} <input type="number" class="c-param" data-k="${f.key}" data-i="${i}" list="${dl}" value="${esc(v)}" min="${f.min}" max="${f.max}" step="${f.step}" inputmode="decimal" aria-label="${esc(def.label)} ${esc(f.label)}"><datalist id="${dl}">${f.options.map((o) => `<option value="${o}"></option>`).join('')}</datalist></label>`;
+    }).join('');
+    const err = validateSpec(raw);
     const withinSel = `<label>${term('within', '保留')} <select data-i="${i}" class="c-within">${[1, 2, 3, 5, 10].map((n) => `<option value="${n}" ${n === c.within ? 'selected' : ''}>${n}</option>`).join('')}</select> 根</label>`;
     const logic = `<div class="cond-logic"><label class="check"><input type="checkbox" class="c-neg" data-i="${i}" ${c.neg ? 'checked' : ''}> ${term('cond_logic', '非')}（條件「不成立」才算）</label>${
       groups ? `<label>邏輯 <select class="c-grp" data-i="${i}" aria-label="條件群組">${[['', '且（獨立）'], ['A', '群組 A（群組內「或」）'], ['B', '群組 B'], ['C', '群組 C'], ['D', '群組 D']].map(([v, t]) => `<option value="${v}" ${c.grp === v ? 'selected' : ''}>${t}</option>`).join('')}</select></label>` : ''}</div>`;
@@ -81,10 +87,29 @@ export function renderConditionList(container, list, baseTf, { groups = true } =
         <button type="button" class="cond-del" data-i="${i}" aria-label="刪除此條件">✕</button>
       </div>
       <div class="cond-params">${fields}${withinSel}</div>
+      ${err ? `<div class="cond-err" role="alert">⚠ ${esc(err)}</div>` : ''}
       ${logic}
       <div class="cond-text">${(() => { const il = illustration(c.id); return il ? `<span class="cond-thumb" title="${esc(il.cap)}">${il.svg}</span>` : ''; })()}${term(def.term, describeSpec(c), c.id)}</div>
     </div>`;
   }).join('');
+}
+
+/** 只更新每列的說明文字與錯誤提示（不重畫輸入框，避免打字／Tab 時失去焦點） */
+export function softUpdateConditionList(container, list, baseTf, opts) {
+  const tmp = document.createElement('div');
+  renderConditionList(tmp, list, baseTf, opts);
+  list.forEach((_, i) => {
+    const live = container.querySelector(`.cond[data-i="${i}"]`);
+    const fresh = tmp.querySelector(`.cond[data-i="${i}"]`);
+    if (!live || !fresh) return;
+    live.classList.toggle('neg', fresh.classList.contains('neg'));
+    live.querySelector('.cond-text').innerHTML = fresh.querySelector('.cond-text').innerHTML;
+    const le = live.querySelector('.cond-err');
+    const fe = fresh.querySelector('.cond-err');
+    if (fe && le) le.innerHTML = fe.innerHTML;
+    else if (fe) live.querySelector('.cond-params').insertAdjacentHTML('afterend', fe.outerHTML);
+    else if (le) le.remove();
+  });
 }
 
 /** 綁定一次即可；onChange(newList) 會收到更新後的陣列 */
@@ -98,11 +123,11 @@ export function bindConditionList(container, getList, setList, getBaseTf) {
     if (!c) return;
     if (t.classList.contains('c-tf')) c.tf = t.value;
     else if (t.classList.contains('c-id')) { c.id = t.value; c.params = {}; c.within = CONDITIONS[c.id].kind === 'event' ? 1 : 1; }
-    else if (t.classList.contains('c-param')) c.params[t.dataset.k] = Number(t.value);
+    else if (t.classList.contains('c-param')) c.params[t.dataset.k] = t.value === '' ? undefined : Number(t.value);
     else if (t.classList.contains('c-within')) c.within = Number(t.value);
     else if (t.classList.contains('c-neg')) c.neg = t.checked;
     else if (t.classList.contains('c-grp')) c.grp = t.value;
-    setList(list);
+    setList(list, { soft: t.classList.contains('c-param') || t.classList.contains('c-within') });
   });
   container.addEventListener('click', (e) => {
     const b = e.target.closest('.cond-del');
