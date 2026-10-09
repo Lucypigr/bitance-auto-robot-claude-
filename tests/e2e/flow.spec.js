@@ -691,3 +691,35 @@ test('策略能力：自動搜尋可用 ATR 倍數單位（預設倍數），冠
   await expect(page.getByTestId('champ-netReturn')).toBeVisible({ timeout: 90000 });
   await expect(page.locator('#r-champions')).toContainText('×ATR');
 });
+
+test('可信度檢定：手動回測有 p 值表、分布圖、白話結論、MAE/MFE，可換亂數；自動搜尋冠軍顯示多重檢定校正', async ({ page }) => {
+  await page.goto('/index.html');
+  await page.locator('#tab-manual').click();
+  await page.selectOption('#m-template', 'oversold');
+  await page.locator('#m-entry .c-param[data-k="level"]').fill('45');
+  await page.selectOption('#days', '90');
+  await page.locator('#btn-manual').click();
+  await expect(page.getByTestId('compare')).toBeVisible({ timeout: 60000 });
+  await page.locator('[data-ctab="robust"]').click();
+  const box = page.getByTestId('robust');
+  await expect(box.getByTestId('robust-table')).toBeVisible({ timeout: 20000 });
+  await expect(box.getByTestId('robust-verdict').locator('li').first()).toBeVisible();
+  await expect(box.getByTestId('robust-multiple')).toContainText('K＝1');
+  await expect(box.locator('svg.robust-svg').first()).toBeVisible();
+  await expect(box).toContainText('最大浮虧');
+  const before = await box.getByTestId('robust-table').innerText();
+  await box.locator('[data-robust="reseed"]').click();
+  await expect(box.getByTestId('robust-table')).toBeVisible({ timeout: 20000 });
+  const after = await box.getByTestId('robust-table').innerText();
+  expect(after.length).toBeGreaterThan(20);
+  void before;
+  // 搜尋 → 冠軍詳細頁：多重檢定要顯示「從 N 組候選挑出」
+  await page.locator('[data-preset="3"]').click();
+  await page.selectOption('#s-budget', '30'); await page.fill('#s-min', '3');
+  await page.locator('#btn-search').click();
+  await expect(page.getByTestId('champ-netReturn')).toBeVisible({ timeout: 90000 });
+  await page.getByTestId('champ-netReturn').locator('[data-open]').first().click();
+  await expect(page.getByTestId('compare')).toBeVisible({ timeout: 60000 });
+  await page.locator('[data-ctab="robust"]').click();
+  await expect(page.getByTestId('robust').getByTestId('robust-multiple')).toContainText('候選裡挑出來', { timeout: 20000 });
+});

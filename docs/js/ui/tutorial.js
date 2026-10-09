@@ -99,6 +99,34 @@ export const PAGES = [
       </ul>`,
   },
   {
+    id: 'robust',
+    title: '這是真本事還是運氣？（可信度檢定）',
+    html: `
+      <p>賺錢不等於有本事。結果頁的「<b>可信度檢定</b>」分頁會幫你回答：<b>這段績效有多少可能只是運氣？</b></p>
+      <ul class="tut-list">
+        <li><b><span data-term="monte_carlo">重抽樣</span></b>：把你的每筆交易損益隨機重抽幾千次，看總損益的 90% 區間。區間大半都在 0 以下，代表賺的部分很可能只是好運。</li>
+        <li><b><span data-term="sign_flip">p 值</span></b>：假設策略其實沒優勢，隨機得到「跟你一樣好」的機率。經驗上 <b>小於 0.05</b> 比較像真的、<b>大於 0.2</b> 很難排除是運氣（這是經驗法則，不是保證）。</li>
+        <li><b><span data-term="multiple_testing">多重檢定</span></b>：自動搜尋測了幾百組才挑出冠軍，好成績有一部分是「挑出來的」。系統會顯示校正後的 p 值，<b>最乾淨的仍是沒參與挑選的樣本外</b>。</li>
+        <li><b>最大回撤重排</b>：交易順序也是運氣。把順序隨機重排，看 95% 情況下最大回撤會多深，用它評估自己撐不撐得住。</li>
+        <li><b><span data-term="mae_mfe">最大浮虧／浮盈</span></b>：看每筆途中走到多慘、多爽，檢視停損停利是不是設得合理。</li>
+      </ul>
+      <p class="tut-tip">⚠ 這些都是「描述過去的運氣範圍」，不能預測未來；交易不到 30 筆時，任何檢定都很脆弱。</p>`,
+  },
+  {
+    id: 'position',
+    title: '進階部位技巧（ATR、分批、加碼、反手）',
+    html: `
+      <p>在手動策略的「進階：分批出場、加碼」與停損停利單位可以找到這些功能。<b>建議先從範本開始</b>（新手範本裡有「ATR 波動停損＋分批出場」與「RSI 雙向反手」）。</p>
+      <table class="tbl tut-tbl"><thead><tr><th>功能</th><th class="txt">白話說明</th><th class="txt">要小心</th></tr></thead><tbody>
+        <tr><td><span data-term="atr_stop">ATR 倍數</span></td><td class="txt">停損停利跟著「近期波動」走：波動大就放寬、波動小就收緊。</td><td class="txt">倍數太小一樣被洗掉；搭配「每筆風險」可讓每筆虧損金額大致固定。</td></tr>
+        <tr><td><span data-term="scale_out">分批出場</span></td><td class="txt">先到第一目標賣一半落袋，剩下的繼續抱，可把停損移到成本價（保本）。</td><td class="txt">大賺的幅度會被縮小；保本也更容易被正常回檔洗出場。</td></tr>
+        <tr><td><span data-term="scale_in">順勢加碼</span></td><td class="txt">價格往有利方向走一段再加一筆（賺了再加）。</td><td class="txt">要保留資金（每筆投入比例＜100%）；回檔時虧得比不加碼多。</td></tr>
+        <tr><td><span data-term="scale_in">逢低分批進場</span></td><td class="txt">價格往不利方向走一段再買一筆，拉低平均成本。</td><td class="txt">「越賠越買」，行情一路走壞時虧損被放大。</td></tr>
+        <tr><td><span data-term="reversal">雙向反手</span></td><td class="txt">多空各自設條件；持單時遇到對面訊號，直接平倉並反向開倉。</td><td class="txt">交易次數與成本大增，震盪盤容易被來回打臉；只支援永續合約。</td></tr>
+      </tbody></table>
+      <p class="tut-tip">💡 加了這些功能之後，一樣要看樣本外與「可信度檢定」：功能越多、可調的地方越多，越容易過度擬合。</p>`,
+  },
+  {
     id: 'next',
     title: '進階：下一步學什麼',
     html: `

@@ -328,3 +328,5 @@ body.tut-open { overflow: hidden; }
 @media (max-width: 600px) { .lib-item { flex-wrap: wrap; } .lib-actions { max-width: none; justify-content: flex-start; width: 100%; } }
 .linkbtn { border: 0; background: transparent; color: var(--accent); text-decoration: underline; cursor: pointer; font: inherit; padding: 0 4px; }
 .tut-sub { margin: 14px 0 4px; font-size: 14.5px; }
+.robust-svg { width: 100%; max-width: 560px; height: auto; display: block; background: var(--panel-2); border-radius: 8px; }
+.robust-hists { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; margin: 10px 0; }

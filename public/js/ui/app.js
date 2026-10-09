@@ -11,6 +11,7 @@ import { refreshChartTheme, destroyAll, candleChart, chartTime } from './charts.
 import { TEMPLATES, defaultCondition, renderConditionList, bindConditionList, softUpdateConditionList, describeManual } from './strategy-form.js';
 import * as R from './results.js';
 import { diagnoseStrategy, diagnoseSearch } from '../core/diagnose.js';
+import { runRobustness, ROBUST_DEFAULTS } from '../core/robust.js';
 import { fmtMoney, fmtPct } from './format.js';
 import { initTutorial } from './tutorial.js';
 import { createLibrary, downloadText, toast } from './library-ui.js';
@@ -749,6 +750,7 @@ function showDetail({ res, strategy, title, costs, keepHead, candidateId }) {
   const tf = Math.round(((res.ranges.train.to - res.ranges.train.from) / (res.ranges.full.to - res.ranges.full.from)) * 100) / 100;
   state.view = { res, strategy, costs, candidateId, trainFrac: tf };
   state.sens = null;
+  state.robust = null;
   state.builtCharts = {};
   state.tradeView = { seg: '', symbol: '', page: 0 };
   const ds = state.data.ds;
@@ -816,6 +818,7 @@ function buildTab(name) {
   const { res, strategy, costs } = state.view;
   const ds = state.data.ds;
   if (name === 'sens') { renderSens(); return; }
+  if (name === 'robust') { renderRobust(); return; }
   if (name === 'trades') { renderTrades(); return; }
   if (name === 'monthly') { R.renderMonthly($('monthly'), res); return; }
   if (state.builtCharts[name]) return;
@@ -831,6 +834,28 @@ function buildTab(name) {
     R.buildDrawdownChart($('dd-chart'), res, ds, costs.capital);
   }
   void strategy;
+}
+
+function renderRobust(bump = 0) {
+  const v = state.view;
+  const el = $('robust');
+  if (!v) { el.innerHTML = '<div class="muted">請先執行一次回測。</div>'; return; }
+  if (bump) { state.robustSeed = (state.robustSeed || ROBUST_DEFAULTS.seed) + bump * 1000; state.robust = null; }
+  const seed = state.robustSeed || ROBUST_DEFAULTS.seed;
+  const searched = !!(v.candidateId && state.searchResult);
+  if (!state.robust || state.robust.view !== v || state.robust.seed !== seed) {
+    el.innerHTML = '<div class="muted" data-testid="robust-loading">計算中…（重抽樣約數千次，通常不到一秒）</div>';
+    setTimeout(() => {
+      if (state.view !== v) return;
+      const data = runRobustness({ res: v.res, capital: v.costs.capital, nCandidates: searched ? state.searchResult.candidates.length : 1, seed });
+      state.robust = { view: v, seed, data };
+      R.renderRobust(el, data, { searched, seed, trades: [...v.res.train.trades, ...v.res.holdout.trades] });
+      decorate(el);
+    }, 20);
+    return;
+  }
+  R.renderRobust(el, state.robust.data, { searched, seed, trades: [...v.res.train.trades, ...v.res.holdout.trades] });
+  decorate(el);
 }
 
 async function renderSens() {
@@ -946,6 +971,7 @@ function bind() {
   $('chart-tabs').addEventListener('click', (e) => { const b = e.target.closest('[data-ctab]'); if (b) selectChartTab(b.dataset.ctab); });
   $('c-symbol').addEventListener('change', () => { destroyAll(); buildCandle(); });
   for (const id of ['ov-ema', 'ov-bb', 'ov-sig', 'ov-trade']) $(id).addEventListener('change', () => { destroyAll(); buildCandle(); });
+  $('robust').addEventListener('click', (e) => { if (e.target.closest('[data-robust="reseed"]')) renderRobust(1); });
   $('r-champions').addEventListener('click', (e) => { const b = e.target.closest('[data-open]'); if (b) openCandidate(b.dataset.open); });
   $('board').addEventListener('click', (e) => {
     const th = e.target.closest('th[data-sort]');
