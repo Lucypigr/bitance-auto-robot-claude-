@@ -3,8 +3,19 @@ import { CONDITIONS, conditionGroups, describeSpec, describeEntry, normalizeSpec
 import { TIMEFRAMES, TF_LABEL, tfIndex } from '../core/util.js';
 import { term, esc } from './info.js';
 import { illustration } from './illustrations.js';
+import { directionText, conditionText, exitParts, exitConditionText } from '../core/describe.js';
 
 export const TEMPLATES = [
+  {
+    id: 'atr', name: 'ATR 波動停損＋分批出場（做多）', baseTf: null,
+    strategy: (tf) => ({ dir: 'long', entry: [{ id: 'rsi_oversold', tf, params: { level: 30 } }], exit: [], unit: 'atr', sl: 1.5, tp: 4, lev: 1, scaleOut: { at: 1.5, frac: 50, be: true } }),
+    tip: '停損 1.5 倍 ATR、第一目標 1.5 倍 ATR 先平一半並把停損移到成本價，剩下的看 4 倍 ATR；波動大時距離自動放寬。',
+  },
+  {
+    id: 'dual', name: 'RSI 雙向反手（多空輪流）', baseTf: null,
+    strategy: (tf) => ({ dir: 'both', entry: [{ id: 'rsi_oversold', tf, params: { level: 30 } }], entryB: [{ id: 'rsi_overbought', tf, params: { level: 70 } }], reverse: true, exit: [], sl: 4, tp: 0, lev: 1 }),
+    tip: 'RSI 超賣做多、超買做空；持有多單時遇到超買訊號，直接平多並反手做空（只支援永續合約）。'
+  },
   {
     id: 'oversold', name: 'RSI 超賣反彈（做多）', baseTf: null,
     strategy: (tf) => ({ dir: 'long', entry: [{ id: 'rsi_oversold', tf, params: { level: 30 } }], exit: [], sl: 3, tp: 5, lev: 1 }),
@@ -140,19 +151,17 @@ export function bindConditionList(container, getList, setList, getBaseTf) {
 }
 
 export function describeManual(st) {
-  const dir = st.dir === 'long' ? '做多' : '做空';
-  if (!st.entry.length) return '請至少新增一個進場條件。';
-  const cond = describeEntry(st.entry);
-  const exits = [];
-  const u = st.unit === 'usdt' ? ` ${st.cur || 'USDT'}` : '%';
-  if (st.sl) exits.push(`停損 ${st.sl}${u}`);
-  if (st.tp) exits.push(`停利 ${st.tp}${u}`);
-  if (st.trail) exits.push(`移動停損 ${st.trail}%`);
-  if (st.exit && st.exit.length) exits.push(`或 ${st.exit.map(describeSpec).join('、')} 時出場`);
+  const dir = directionText(st);
+  if (!st.entry.length || (st.dir === 'both' && !(st.entryB && st.entryB.length))) return st.dir === 'both' ? '雙向策略需要同時設定「做多進場條件」與「做空進場條件」。' : '請至少新增一個進場條件。';
+  const cond = conditionText(st);
+  const exits = exitParts(st);
+  const ex = exitConditionText(st);
+  if (ex) exits.push(ex);
   if (st.maxBars) exits.push(`最長持倉 ${st.maxBars} 根`);
   const rules = [];
   if (st.capitalMode === 'shared') rules.push(`共用資金池、同時最多持有 ${st.maxPos} 檔`);
   if (st.riskPct) rules.push(`每筆停損最多虧帳戶淨值的 ${st.riskPct}%`);
   const mode = st.entryMode === 'level' ? '條件成立期間，空手就進場' : '條件由不成立變成立的那一根收盤後';
-  return `${mode}：${cond} → 下一根 K 線開盤${dir}（${st.lev}× 槓桿${st.posUsdt ? `，每筆投入 ${st.posUsdt} ${st.cur || 'USDT'}` : ''}）。${exits.length ? '出場：' + exits.join('、') + '。' : '未設定停損停利，只會在資料結束時平倉。'}${rules.length ? '部位規則：' + rules.join('；') + '。' : ''}`;
+  const side = st.dir === 'both' ? (st.reverse ? '下一根 K 線開盤進場；持倉中出現對面訊號就在下一個開盤價平倉並反向開倉' : '下一根 K 線開盤進場；持倉中忽略對面訊號') : `下一根 K 線開盤${dir}`;
+  return `${mode}：${cond} → ${side}（${st.lev}× 槓桿${st.posUsdt ? `，每筆投入 ${st.posUsdt} ${st.cur || 'USDT'}` : ''}）。${exits.length ? '出場：' + exits.join('、') + '。' : '未設定停損停利，只會在資料結束時平倉。'}${rules.length ? '部位規則：' + rules.join('；') + '。' : ''}`;
 }

@@ -176,7 +176,7 @@
           <summary>進階：停損、停利、槓桿的搜尋範圍</summary>
           <div class="grid2">
             <div class="field"><label class="label" for="s-unit"><span data-term="usdt_exit">停損停利單位</span></label>
-              <select id="s-unit"><option value="pct" selected>價格 %</option><option value="usdt" data-cur="{C} 損益金額">USDT 損益金額</option></select></div>
+              <select id="s-unit"><option value="pct" selected>價格 %</option><option value="usdt" data-cur="{C} 損益金額">USDT 損益金額</option><option value="atr">ATR 倍數（隨波動度）</option></select></div>
             <div class="field"><label class="label" for="s-usdt"><span data-cur="每筆投入（{C} 本金）">每筆投入（USDT 保證金）</span></label><input id="s-usdt" type="number" min="0" step="1" value="0"></div>
           </div>
           <div class="field"><div class="label"><span data-term="stoploss">停損</span>（勾選）</div><div class="checks" id="s-sl"></div>
@@ -244,18 +244,28 @@
           <div class="seg" role="radiogroup" aria-label="方向">
             <button type="button" class="seg-btn" data-dir="long" role="radio" aria-checked="false">做多（看漲）</button>
             <button type="button" class="seg-btn" data-dir="short" role="radio" aria-checked="true">做空（看跌）</button>
+            <button type="button" class="seg-btn" data-dir="both" role="radio" aria-checked="false" title="多空兩邊各自設定進場條件，可選擇反手">雙向</button>
           </div>
+          <div class="muted small"><span data-term="reversal">雙向</span>：做多與做空各自設定進場條件（只支援永續合約），可選擇「反手」。</div>
         </div>
         <div class="field">
           <div class="label">進場條件 <span class="muted">（預設全部成立才進場＝<span data-term="cond_logic">且</span>；也可以設成「或」群組、或勾「非」）</span></div>
           <div class="muted small" style="margin-bottom:6px">每個條件的<span data-term="indicator_params">指標參數</span>（週期、門檻、倍數…）都能直接輸入數字，也可以點輸入框挑建議值。</div>
+          <div id="m-entry-label" class="small" hidden><b>做多</b>進場條件</div>
           <div id="m-entry"></div>
           <button type="button" class="btn small" id="m-add-entry">＋ 新增條件</button>
+          <div id="m-entryB-box" hidden>
+            <div class="small" style="margin-top:10px"><b>做空</b>進場條件</div>
+            <div id="m-entryB"></div>
+            <button type="button" class="btn small" id="m-add-entryB">＋ 新增做空條件</button>
+            <label class="check" style="margin-top:8px"><input id="m-reverse" type="checkbox" checked> <span data-term="reversal">反手</span>：持倉中出現對面訊號，就在下一個開盤價平倉並立刻反向開倉</label>
+          </div>
           <div id="m-summary" class="note info"></div>
         </div>
         <div class="grid2">
           <div class="field"><label class="label" for="m-unit"><span data-term="usdt_exit">停損停利單位</span></label>
-            <select id="m-unit"><option value="pct" selected>價格 %</option><option value="usdt" data-cur="{C} 損益金額">USDT 損益金額</option></select></div>
+            <select id="m-unit"><option value="pct" selected>價格 %</option><option value="usdt" data-cur="{C} 損益金額">USDT 損益金額</option><option value="atr">ATR 倍數（隨波動度）</option></select></div>
+          <div class="field" id="m-atr-field" hidden><label class="label" for="m-atr"><span data-term="atr_stop">ATR 週期</span></label><input id="m-atr" type="number" min="2" max="200" step="1" value="14"></div>
           <div class="field"><label class="label" for="m-usdt"><span data-cur="每筆投入（{C} 本金，0＝用資金比例）">每筆投入（USDT 保證金，0＝用資金比例）</span></label><input id="m-usdt" type="number" min="0" step="1" value="0"></div>
         </div>
         <div class="grid2">
@@ -268,6 +278,24 @@
           <div class="field"><label class="label" for="m-entrymode"><span data-term="entry_mode">進場方式</span></label>
             <select id="m-entrymode"><option value="edge" selected>條件剛成立才進場</option><option value="level">成立期間都可進場</option></select></div>
         </div>
+        <div id="m-unit-note" class="note info" hidden></div>
+        <details class="adv" id="m-pos-adv">
+          <summary>進階：分批出場、加碼（部位技巧）</summary>
+          <label class="check"><input id="m-so-on" type="checkbox"> <span data-term="scale_out">分批出場</span>：先到第一目標先平一部分</label>
+          <div class="grid2" id="m-so-fields">
+            <div class="field"><label class="label" for="m-so-at">第一目標（<span class="m-unit-txt">%</span>）</label><input id="m-so-at" type="number" min="0" step="0.5" value="2"></div>
+            <div class="field"><label class="label" for="m-so-frac">平倉比例（%）</label><input id="m-so-frac" type="number" min="1" max="99" step="1" value="50"></div>
+            <label class="check"><input id="m-so-be" type="checkbox" checked> 平倉後，剩下的停損移到成本價（保本）</label>
+          </div>
+          <div class="field" style="margin-top:10px"><label class="label" for="m-si-mode"><span data-term="scale_in">加碼／分批進場</span></label>
+            <select id="m-si-mode"><option value="off" selected>不加碼</option><option value="favor">順勢加碼（賺了再加）</option><option value="adverse">逢低分批進場（跌了再買、做空則漲了再空）</option></select></div>
+          <div class="grid2" id="m-si-fields">
+            <div class="field"><label class="label" for="m-si-step">每隔多遠加一次（<span class="m-unit-txt">%</span>）</label><input id="m-si-step" type="number" min="0" step="0.5" value="2"></div>
+            <div class="field"><label class="label" for="m-si-count">最多加幾次</label><input id="m-si-count" type="number" min="1" max="5" step="1" value="2"></div>
+            <div class="field"><label class="label" for="m-si-size">每次加碼大小（初始部位的 %）</label><input id="m-si-size" type="number" min="1" max="300" step="5" value="50"></div>
+          </div>
+          <div class="muted small">加碼需要有可用資金：請把「每筆投入比例」調到 100% 以下（例如 50%）。分批出場與加碼目前只用於手動策略；USDT 金額單位不能搭配。</div>
+        </details>
         <details class="adv" id="m-rules-adv">
           <summary>進階：部位規則（資金池、同時持倉數、風險比例）</summary>
           <div class="grid2">
@@ -312,6 +340,7 @@
           <button type="button" class="tab" role="tab" data-ctab="drawdown" aria-selected="false">回撤</button>
           <button type="button" class="tab" role="tab" data-ctab="monthly" aria-selected="false">每月報酬</button>
           <button type="button" class="tab" role="tab" data-ctab="sens" aria-selected="false" id="tab-sens">參數敏感度</button>
+          <button type="button" class="tab" role="tab" data-ctab="robust" aria-selected="false" id="tab-robust">可信度檢定</button>
           <button type="button" class="tab" role="tab" data-ctab="trades" aria-selected="false">逐筆交易</button>
           <button type="button" class="tab" role="tab" data-ctab="board" aria-selected="false" id="tab-board" hidden>候選排行榜</button>
         </div>
@@ -330,6 +359,7 @@
         <div id="ctab-drawdown" class="ctab" hidden><div id="dd-chart" class="chart-box"></div></div>
         <div id="ctab-monthly" class="ctab" hidden><div id="monthly"></div></div>
         <div id="ctab-sens" class="ctab" hidden><div id="sens"></div></div>
+        <div id="ctab-robust" class="ctab" hidden><div id="robust" data-testid="robust"></div></div>
         <div id="ctab-trades" class="ctab" hidden><div id="trades"></div></div>
         <div id="ctab-board" class="ctab" hidden><div id="board"></div></div>
       </div>

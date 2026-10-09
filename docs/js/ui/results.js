@@ -7,8 +7,15 @@ import * as I from '../core/indicators.js';
 import { CONDITIONS, describeSpec, specKey } from '../core/conditions.js';
 import { risingEdges } from '../core/signals.js';
 import { symbolBreakdown } from '../core/breakdown.js';
+import { robustVerdict, priceRet } from '../core/robust.js';
 
-const REASON = { tp: '停利', sl: '停損', trail: '移動停損', liq: '清算', signal: '出場訊號', time: '持倉期滿', end: '區間結束' };
+const REASON = { tp: '停利', sl: '停損', trail: '移動停損', be: '保本出場', reverse: '反手', liq: '清算', signal: '出場訊號', time: '持倉期滿', end: '區間結束' };
+const legsText = (t) => {
+  if (!t.legs) return '';
+  const a = t.legs.filter((x) => x.kind === 'add').length;
+  const p = t.legs.filter((x) => x.kind === 'partial').length;
+  return `（${[a ? `加碼 ${a}` : '', p ? `分批出場 ${p}` : ''].filter(Boolean).join('、')}）`;
+};
 const pfText = (pf) => (Number.isFinite(pf) ? fmtNum(pf) : pf > 0 ? '∞' : '—');
 
 // ---------------- 績效比較表 ----------------
@@ -187,7 +194,7 @@ export function renderTrades(el, res, ds, view) {
   const rows = slice.map((t, i) => `<tr>
     <td>${view.page * per + i + 1}</td><td>${t.seg}</td><td>${esc(symLabel(ds, t.symbol))}</td><td class="${t.dir > 0 ? 'pos' : 'neg'}">${t.dir > 0 ? '做多' : '做空'}</td>
     <td>${fmtStamp(ds, t.entryTime)}</td><td>${fmtPrice(t.entryPrice)}</td><td>${fmtStamp(ds, t.exitTime)}</td><td>${fmtPrice(t.exitPrice)}</td>
-    <td>${REASON[t.reason] || t.reason}</td><td>${t.bars}</td><td>${t.lev}×</td><td>${fmtMoney(t.fee)}</td><td class="${signClass(t.funding)}">${fmtMoney(t.funding, 2, true)}</td>
+    <td>${REASON[t.reason] || t.reason}${legsText(t)}</td><td>${t.bars}</td><td>${t.lev}×</td><td>${fmtMoney(t.fee)}</td><td class="${signClass(t.funding)}">${fmtMoney(t.funding, 2, true)}</td>
     <td class="${signClass(t.pnl)}">${fmtMoney(t.pnl, 2, true)}</td><td class="${signClass(t.ret)}">${fmtPct(t.ret, 2, true)}</td></tr>`).join('');
   el.innerHTML = `<div class="chart-tools">
       <label>期間 <select id="tr-seg"><option value="">全部</option><option ${view.seg === '訓練' ? 'selected' : ''}>訓練</option><option ${view.seg === '樣本外' ? 'selected' : ''}>樣本外</option></select></label>
@@ -336,7 +343,8 @@ export function buildCandleChart(el, { ds, sig, res, strategy, si, show, legendE
       legend.push(`${label} ${describeSpec(sp)}`);
     });
     const all = sig.entryIdx(si, strategy.entry, strategy.entryMode || 'edge');
-    for (const i of all) if (i >= from) markers.push({ time: tAt(i), position: strategy.dir === 'short' ? 'aboveBar' : 'belowBar', color: cssVar('--accent'), shape: 'square', text: '訊號', size: 0.8 });
+    for (const i of all) if (i >= from) markers.push({ time: tAt(i), position: strategy.dir === 'short' ? 'aboveBar' : 'belowBar', color: cssVar('--accent'), shape: 'square', text: strategy.dir === 'both' ? '多訊號' : '訊號', size: 0.8 });
+    if (strategy.dir === 'both') for (const i of sig.entryIdx(si, strategy.entryB || [], strategy.entryMode || 'edge')) if (i >= from) markers.push({ time: tAt(i), position: 'aboveBar', color: cssVar('--accent'), shape: 'square', text: '空訊號', size: 0.8 });
   }
   if (show.trade) {
     const upC = cssVar('--up'); const dnC = cssVar('--down');
@@ -345,6 +353,7 @@ export function buildCandleChart(el, { ds, sig, res, strategy, si, show, legendE
         if (t.symbol !== S.symbol) continue;
         markers.push({ time: tAt(t.entryIdx), position: t.dir > 0 ? 'belowBar' : 'aboveBar', color: t.dir > 0 ? upC : dnC, shape: t.dir > 0 ? 'arrowUp' : 'arrowDown', text: `${t.dir > 0 ? '多' : '空'}${t.lev > 1 ? t.lev + '×' : ''}` });
         markers.push({ time: tAt(t.exitIdx), position: t.dir > 0 ? 'aboveBar' : 'belowBar', color: t.pnl >= 0 ? upC : dnC, shape: 'circle', text: REASON[t.reason] || '' });
+        for (const lg of t.legs || []) markers.push({ time: tAt(lg.idx), position: t.dir > 0 ? 'aboveBar' : 'belowBar', color: '#a855f7', shape: 'circle', text: lg.kind === 'add' ? '加碼' : '分批出場', size: 0.7 });
       }
     }
     const splitIdx = res.ranges.splitIdx;
@@ -409,7 +418,7 @@ export function renderSymbolBreakdown(el, res, capital, ds) {
 const heatColor = (r) => `color-mix(in srgb, var(${r >= 0 ? '--up' : '--down'}) ${Math.min(80, Math.round((Math.abs(r) / 0.3) * 80))}%, var(--panel-2))`;
 
 export function renderSensitivity(el, d, strategy, ds) {
-  const unit = strategy.unit === 'usdt' ? ` ${strategy.cur || 'USDT'}` : '%';
+  const unit = strategy.unit === 'usdt' ? ` ${strategy.cur || 'USDT'}` : strategy.unit === 'atr' ? '×ATR' : '%';
   const cls = { good: 'good', warn: 'warn', bad: 'bad', none: 'info' }[d.summary.level];
   const heat = (sel, title) => {
     const head = d.slAxis.length ? d.slAxis : [d.base.sl];
@@ -479,4 +488,65 @@ export function renderWalkForward(el, wf, ds, capital) {
     ],
     markers: { wf: markers },
   });
+}
+
+// ---------------- 可信度檢定 ----------------
+function histSvg(seg, title) {
+  const h = seg.boot.hist;
+  const W = 520; const H = 130; const pad = 22;
+  const max = Math.max(...h.counts, 1);
+  const bw = (W - pad * 2) / h.counts.length;
+  const xOf = (v) => pad + ((v - h.lo) / ((h.hi - h.lo) || 1)) * (W - pad * 2);
+  const bars = h.counts.map((c, i) => {
+    const x0 = h.lo + ((h.hi - h.lo) / h.counts.length) * i;
+    const neg = x0 + (h.hi - h.lo) / h.counts.length / 2 < 0;
+    const bh = (c / max) * (H - 38);
+    return `<rect x="${(pad + i * bw + 1).toFixed(1)}" y="${(H - 18 - bh).toFixed(1)}" width="${(bw - 2).toFixed(1)}" height="${bh.toFixed(1)}" fill="var(${neg ? '--down' : '--up'})" opacity=".55"/>`;
+  }).join('');
+  const zero = h.lo < 0 && h.hi > 0 ? `<line x1="${xOf(0).toFixed(1)}" x2="${xOf(0).toFixed(1)}" y1="6" y2="${H - 18}" stroke="var(--muted)" stroke-dasharray="3 3"/><text x="${xOf(0).toFixed(1)}" y="${H - 5}" font-size="10" text-anchor="middle" fill="var(--muted)">0</text>` : '';
+  const ox = xOf(seg.totalPct);
+  return `<div><div class="label">${esc(title)}</div><svg viewBox="0 0 ${W} ${H}" class="robust-svg" role="img" aria-label="${esc(title)}：重抽樣總損益分布，橘線為實際成績">
+    ${bars}${zero}<line x1="${ox.toFixed(1)}" x2="${ox.toFixed(1)}" y1="4" y2="${H - 18}" stroke="#f59e0b" stroke-width="2.5"/>
+    <text x="${Math.min(W - pad, Math.max(pad, ox)).toFixed(1)}" y="${H - 5}" font-size="10" text-anchor="middle" fill="#f59e0b">實際 ${fmtPct(seg.totalPct, 1, true)}</text>
+    <text x="${pad}" y="${H - 5}" font-size="10" fill="var(--muted)">${fmtPct(h.lo, 0, true)}</text><text x="${W - pad}" y="${H - 5}" font-size="10" text-anchor="end" fill="var(--muted)">${fmtPct(h.hi, 0, true)}</text></svg></div>`;
+}
+
+function scatterSvg(trades) {
+  const pts = trades.filter((t) => Number.isFinite(t.mae) && t.entryPrice > 0).map((t) => ({ x: t.mae * 100, y: priceRet(t) * 100, win: t.pnl > 0 }));
+  if (pts.length < 5) return '';
+  const W = 520; const H = 220; const L = 40; const B = 26; const T = 8; const R = 10;
+  const xmax = Math.max(1, ...pts.map((p) => p.x));
+  const ymin = Math.min(0, ...pts.map((p) => p.y)); const ymax = Math.max(0.5, ...pts.map((p) => p.y));
+  const X = (v) => L + (v / xmax) * (W - L - R);
+  const Y = (v) => T + (1 - (v - ymin) / ((ymax - ymin) || 1)) * (H - T - B);
+  const dots = pts.map((p) => `<circle cx="${X(p.x).toFixed(1)}" cy="${Y(p.y).toFixed(1)}" r="3" fill="var(${p.win ? '--up' : '--down'})" opacity=".6"/>`).join('');
+  return `<svg viewBox="0 0 ${W} ${H}" class="robust-svg" role="img" aria-label="每筆交易的最大浮虧與最終報酬散佈圖">
+    <line x1="${L}" x2="${W - R}" y1="${Y(0).toFixed(1)}" y2="${Y(0).toFixed(1)}" stroke="var(--muted)" stroke-dasharray="3 3"/>
+    <line x1="${L}" x2="${L}" y1="${T}" y2="${H - B}" stroke="var(--border)"/><line x1="${L}" x2="${W - R}" y1="${H - B}" y2="${H - B}" stroke="var(--border)"/>
+    ${dots}
+    <text x="${W / 2}" y="${H - 6}" font-size="10.5" text-anchor="middle" fill="var(--muted)">途中最大浮虧（價格 %）→</text>
+    <text x="4" y="${T + 10}" font-size="10" fill="var(--muted)">${ymax.toFixed(1)}%</text><text x="4" y="${H - B}" font-size="10" fill="var(--muted)">${ymin.toFixed(1)}%</text><text x="4" y="${Y(0).toFixed(1)}" font-size="10" fill="var(--muted)">0</text></svg>`;
+}
+
+export function renderRobust(el, r, { searched = false, seed = 0, trades = [] } = {}) {
+  const lvl = { good: 'good', warn: 'warn', bad: 'bad', info: 'info' };
+  const list = robustVerdict(r, { searched });
+  const seg = (name, s) => (s.insufficient
+    ? `<tr><th class="txt">${name}</th><td colspan="6" class="muted">交易只有 ${s.n} 筆，太少，無法檢定</td></tr>`
+    : `<tr><th class="txt">${name}</th><td>${s.n}</td><td class="${signClass(s.totalPct)}">${fmtPct(s.totalPct, 1, true)}</td><td>${fmtPct(s.boot.p05, 1, true)} ～ ${fmtPct(s.boot.p95, 1, true)}</td><td>${fmtPct(s.boot.probPositive, 0)}</td><td class="${s.signFlipP < 0.05 ? 'pos' : s.signFlipP < 0.2 ? '' : 'neg'}">${fmtNum(s.signFlipP, 3)}</td><td>${fmtPct(-s.dd.observed, 1)} ／ ${fmtPct(-s.dd.p95, 1)}</td></tr>`);
+  const m = r.multiple;
+  const ex = r.excursion;
+  const exRow = (name, x) => `<tr><th class="txt">${name}（${x.n} 筆）</th><td>${x.n ? fmtPct(x.maeMed, 2) : '—'}</td><td>${x.n ? fmtPct(x.maeP90, 2) : '—'}</td><td>${x.n ? fmtPct(x.mfeMed, 2) : '—'}</td></tr>`;
+  el.innerHTML = `<div class="note info"><b>這一頁回答：「這段績效有多少可能只是運氣？」</b>把交易重新抽樣、隨機翻轉、隨機重排很多次，看運氣能造成多大的差距。固定亂數種子（${seed}），結果可重現；損益用「加總」近似、不含持倉中的浮動損益。<button type="button" class="btn small" data-robust="reseed" style="margin-left:8px">🔄 換一組亂數</button></div>
+    <ul class="verdict-list" data-testid="robust-verdict">${list.map((v) => `<li class="${lvl[v.level]}">${esc(v.text)}</li>`).join('')}</ul>
+    <div class="tbl-wrap"><table class="tbl" data-testid="robust-table"><thead><tr><th class="txt"></th><th>交易數</th><th>實際總損益<div class="muted small">佔本金</div></th><th>${term('monte_carlo', '重抽樣 90% 區間')}</th><th>總損益為正的機率</th><th>${term('sign_flip', 'p 值')}<div class="muted small">越小越不像運氣</div></th><th>最大回撤<div class="muted small">實際 ／ 重排 95%</div></th></tr></thead>
+      <tbody>${seg('訓練期', r.train)}${seg('樣本外', r.oos)}</tbody></table></div>
+    <div class="robust-hists">${r.oos.insufficient ? '' : histSvg(r.oos, '樣本外：重抽樣的總損益分布（橘線＝實際）')}${r.train.insufficient ? '' : histSvg(r.train, '訓練期：重抽樣的總損益分布（橘線＝實際）')}</div>
+    <div class="note ${searched && m.K > 1 ? 'warn' : 'info'}" data-testid="robust-multiple"><b>${term('multiple_testing', '多重檢定')}：</b>${searched && m.K > 1
+      ? `這個策略是從 <b>${m.K}</b> 組候選裡挑出來的。訓練期原始 p 值 ${m.pTrain === null ? '—' : fmtNum(m.pTrain, 3)}，校正後約 <b>${m.pTrainAdj === null ? '—' : fmtNum(m.pTrainAdj, 3)}</b>（Šidák）；校正後如果仍然偏大，代表訓練期的好成績可能只是「挑出來的」。<b>樣本外 p 值 ${m.pOos === null ? '—' : fmtNum(m.pOos, 3)}</b> 是乾淨的（只驗收一次）；若你在三位冠軍之間比較、挑最好的，請把它乘以 3 再看。`
+      : `目前是單一策略（K＝1），沒有校正。若你之前手動試過很多組設定才挑到這一組，實際的挑選次數比 1 大，請把 p 值看得更保守。`}</div>
+    <h3 style="margin:14px 0 6px">${term('mae_mfe', '交易途中的最大浮虧／浮盈')}</h3>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th class="txt"></th><th>最大浮虧（中位數）</th><th>最大浮虧（90 百分位）</th><th>最大浮盈（中位數）</th></tr></thead><tbody>${exRow('賺錢的交易', ex.win)}${exRow('虧錢的交易', ex.lose)}</tbody></table></div>
+    <div class="muted small" style="margin:6px 0">${ex.n >= 10 ? `輸家中有 ${fmtPct(ex.loseWithProfit, 0)} 曾經浮盈超過 0.5%；${ex.capture === null ? '' : `贏家平均只抓到最大浮盈的 ${fmtPct(ex.capture, 0)}。`}` : '交易太少，無法歸納。'}數字是價格變動（不含槓桿與成本）。</div>
+    ${scatterSvg(trades)}<div class="muted small">每個點是一筆交易：橫軸＝途中最大浮虧、縱軸＝最終價格報酬。點若集中在左下（小浮虧就認賠）代表停損夠緊；右上角很多點（浮虧很深最後還是賺）代表停損可能太緊，把賺錢的單子洗掉了。</div>`;
 }

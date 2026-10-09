@@ -1,6 +1,7 @@
 // 「交易數太少？」設定檢查：把訊號一層一層拆開來看，找出是哪一關把交易擋掉了。
 import { lowerBound, TF_MS, tfIndex, spanMs } from './util.js';
 import { describeSpec, normalizeSpec, entryGroups, CONDITIONS } from './conditions.js';
+import * as I from './indicators.js';
 
 const countIn = (idx, range) => Math.max(0, lowerBound(idx, range.to - 1) - lowerBound(idx, range.from));
 
@@ -100,6 +101,24 @@ export function diagnoseStrategy(sig, strategy, ranges, res, { minTrades = 20, c
     const slPct = strategy.sl ? (strategy.sl / notional) * 100 : 0;
     const C = strategy.cur || 'USDT';
     if (tpPct) add(tpPct > 20 || tpPct < 0.2 ? 'warn' : 'info', `以 ${C} 設定：投入 ${strategy.posUsdt}、槓桿 ${L}× → 名目價值 ${notional} ${C}；停利 ${strategy.tp} ${C} 相當於價格要走 ${tpPct.toFixed(2)}%，停損 ${strategy.sl || 0} ${C} 相當於 ${slPct.toFixed(2)}%。${tpPct > 20 ? '停利要價格走很遠才會碰到，多半只會等到區間結束才平倉。' : tpPct < 0.2 ? '停利幅度小於來回交易成本，賺到的都被手續費吃掉。' : ''}`);
+  } else if (strategy.unit === 'atr') {
+    // ATR 單位：換算成大約的價格 %，才看得出停損停利是不是比成本還小
+    const pcts = [];
+    for (const S of ds.symbols) {
+      const a = I.atrPercent(S.h.subarray(S.first, S.last + 1), S.l.subarray(S.first, S.last + 1), S.c.subarray(S.first, S.last + 1), strategy.atrPeriod || 14);
+      const from = Math.max(0, ranges.train.from - S.first);
+      const to = Math.min(a.length, ranges.train.to - S.first);
+      for (let i = from; i < to; i++) if (a[i] > 0) pcts.push(a[i]);
+    }
+    pcts.sort((x, y) => x - y);
+    const med = pcts.length ? pcts[Math.floor(pcts.length / 2)] : 0;
+    if (med > 0) {
+      const slP = (strategy.sl || 0) * med;
+      const tpP = (strategy.tp || 0) * med;
+      add('info', `ATR 單位：訓練期 ATR(${strategy.atrPeriod || 14}) 的中位數約為價格的 ${med.toFixed(2)}%，所以${strategy.sl ? `停損 ${strategy.sl}×ATR ≈ ${slP.toFixed(2)}%` : ''}${strategy.sl && strategy.tp ? '、' : ''}${strategy.tp ? `停利 ${strategy.tp}×ATR ≈ ${tpP.toFixed(2)}%` : ''}（實際每筆會依進場當下的波動度而變）。`);
+      if (tpP && cost && tpP / 100 <= cost) add('warn', `停利約 ${tpP.toFixed(2)}% 小於等於來回手續費＋滑價（約 ${(cost * 100).toFixed(2)}%），就算停利成功也是賠錢。請調高停利的 ATR 倍數。`);
+    }
+    if (!strategy.sl && !strategy.tp && !strategy.trail && !(strategy.exit && strategy.exit.length) && !strategy.maxBars) add('warn', '沒有設定任何停損、停利或出場條件：一旦進場就會持有到資料結束。');
   } else {
     if (strategy.tp && cost && strategy.tp / 100 <= cost) add('warn', `停利 ${strategy.tp}% 小於等於來回手續費＋滑價（約 ${(cost * 100).toFixed(2)}%），就算停利成功也是賠錢。`);
     if (!strategy.sl && !strategy.tp && !strategy.trail && !(strategy.exit && strategy.exit.length) && !strategy.maxBars) add('warn', '沒有設定任何停損、停利或出場條件：一旦進場就會持有到資料結束，之後的訊號都會被略過，所以只會有 1 筆交易。');
@@ -112,7 +131,20 @@ export function diagnoseStrategy(sig, strategy, ranges, res, { minTrades = 20, c
       break;
     }
   }
-  const wrongWay = specs.filter((sp) => { const s = CONDITIONS[sp.id].side; return s !== 'neutral' && s !== (strategy.dir === 'long' ? 'bull' : 'bear'); });
+  const allTrades = [...res.train.trades, ...res.holdout.trades];
+  const si0 = strategy.scaleIn;
+  if (si0 && si0.count > 0 && allTrades.length && !allTrades.some((t) => t.legs && t.legs.some((x) => x.kind === 'add'))) {
+    add('warn', `設定了${si0.mode === 'adverse' ? '逢低分批進場' : '順勢加碼'}，但所有交易都沒有加碼成交。常見原因：① 資金已經全部投入（請把「每筆投入比例」調低到 100% 以下，才有資金可加碼）② 價格很少走到加碼價 ③ ${si0.mode === 'adverse' ? '停損比加碼價更近' : '同一根 K 線先碰到停損或停利'}。`);
+  }
+  const so0 = strategy.scaleOut;
+  if (so0 && so0.frac > 0 && allTrades.length && !allTrades.some((t) => t.legs && t.legs.some((x) => x.kind === 'partial'))) {
+    add('info', `設定了分批出場，但沒有任何一筆走到第一目標（${so0.at}${strategy.unit === 'atr' ? '×ATR' : '%'}）。可以把第一目標調近一點。`);
+  }
+  if (strategy.dir === 'both') {
+    const eb = sum((si) => countIn(sig.entryIdx(si, strategy.entryB || [], mode), ranges.train));
+    add('info', `雙向策略：上面的「條件」與「進場訊號」表只統計做多那一邊；做空那邊的進場訊號在訓練期共 ${eb} 次。${strategy.reverse ? '開啟了反手：持倉中出現對面訊號會直接反向，所以交易會比單向多。' : '沒有開反手：持倉中出現的對面訊號會被忽略。'}`);
+  }
+  const wrongWay = strategy.dir === 'both' ? [] : specs.filter((sp) => { const s = CONDITIONS[sp.id].side; return s !== 'neutral' && s !== (strategy.dir === 'long' ? 'bull' : 'bear'); });
   if (wrongWay.length) add('info', `方向是${strategy.dir === 'long' ? '做多' : '做空'}，卻使用了${strategy.dir === 'long' ? '偏空' : '偏多'}條件（${wrongWay.map((s) => CONDITIONS[s.id].label).join('、')}）。這是「順勢追價」的邏輯，不是錯誤，但請確認是你要的。`);
   // 5) 樣本外
   if (tradesHold < 10) add('warn', `樣本外只有 ${tradesHold} 筆交易（需要夠多才能驗證）。`);

@@ -1,6 +1,6 @@
 // 多幣種投組：資金平均分配給每個幣種（各自獨立的資金袋），再把淨值曲線相加。
 import { validateSpec } from './conditions.js';
-import { simulateSymbol, simulatePool } from './engine.js';
+import { simulateSymbol, simulatePool, simulateDual } from './engine.js';
 import { computeMetrics } from './metrics.js';
 
 /**
@@ -11,11 +11,18 @@ import { computeMetrics } from './metrics.js';
 export function strategyToCfg(strategy, costs, market) {
   const perp = market === 'perp';
   const tw = market === 'tw';
+  const atr = strategy.unit === 'atr'; // 停損／停利（及分批出場、加碼間距）以 ATR 倍數表示
+  const scale = atr ? 1 : 0.01;
+  const so = strategy.scaleOut;
+  const si = strategy.scaleIn;
   return {
     dir: strategy.dir === 'short' ? -1 : 1,
     lev: perp ? strategy.lev || 1 : 1,
-    sl: strategy.unit === 'usdt' ? 0 : (strategy.sl || 0) / 100,
-    tp: strategy.unit === 'usdt' ? 0 : (strategy.tp || 0) / 100,
+    unitAtr: atr, atrPeriod: strategy.atrPeriod || 14,
+    sl: strategy.unit === 'usdt' ? 0 : (strategy.sl || 0) * scale,
+    tp: strategy.unit === 'usdt' ? 0 : (strategy.tp || 0) * scale,
+    so: so && so.frac > 0 ? { at: (so.at || 0) * scale, frac: so.frac / 100, be: !!so.be } : null,
+    si: si && si.count > 0 ? { mode: si.mode === 'adverse' ? 'adverse' : 'favor', step: (si.step || 0) * scale, count: Math.floor(si.count), size: (si.size ?? 100) / 100 } : null,
     slUsdt: strategy.unit === 'usdt' ? strategy.sl || 0 : 0,
     tpUsdt: strategy.unit === 'usdt' ? strategy.tp || 0 : 0,
     posUsdt: strategy.posUsdt || 0,
@@ -36,10 +43,39 @@ export function strategyToCfg(strategy, costs, market) {
 }
 
 export function validateStrategy(ds, strategy) {
-  for (const sp of [...(strategy.entry || []), ...(strategy.exit || [])]) {
+  for (const sp of [...(strategy.entry || []), ...(strategy.entryB || []), ...(strategy.exit || [])]) {
     const e = validateSpec(sp);
     if (e) throw new Error(e);
   }
+  if (strategy.unit && !['pct', 'usdt', 'atr'].includes(strategy.unit)) throw new Error('停損停利單位不正確');
+  if (strategy.unit === 'atr') {
+    const p = strategy.atrPeriod ?? 14;
+    if (!(p >= 2 && p <= 200)) throw new Error('ATR 週期必須介於 2 ～ 200');
+    if (!(strategy.sl > 0) && !(strategy.tp > 0) && !(strategy.scaleIn && strategy.scaleIn.count > 0)) throw new Error('ATR 單位需要設定停損或停利的 ATR 倍數');
+  }
+  const so = strategy.scaleOut;
+  if (so && so.frac > 0) {
+    if (strategy.unit === 'usdt') throw new Error('分批出場不能和「USDT 金額」單位一起用，請改用價格 % 或 ATR 倍數');
+    if (!(so.frac >= 1 && so.frac <= 99)) throw new Error('分批出場的平倉比例必須介於 1% ～ 99%');
+    if (!(so.at > 0)) throw new Error('分批出場需要設定第一目標（大於 0）');
+    if (strategy.tp > 0 && !(so.at < strategy.tp)) throw new Error('分批出場的第一目標必須比最終停利更近（小於停利）');
+  }
+  const si = strategy.scaleIn;
+  if (si && si.count > 0) {
+    if (strategy.unit === 'usdt') throw new Error('加碼不能和「USDT 金額」單位一起用，請改用價格 % 或 ATR 倍數');
+    if (!['favor', 'adverse'].includes(si.mode)) throw new Error('加碼方式不正確');
+    if (!(si.count >= 1 && si.count <= 5 && Number.isInteger(si.count))) throw new Error('加碼次數必須是 1 ～ 5 的整數');
+    if (!(si.step > 0)) throw new Error('加碼間距必須大於 0');
+    if (!(si.size >= 1 && si.size <= 300)) throw new Error('每次加碼的大小必須介於初始部位的 1% ～ 300%');
+    if (si.mode === 'adverse' && strategy.sl > 0 && !(si.step * si.count < strategy.sl)) throw new Error('逢低分批進場的最遠一檔必須比停損更近（間距 × 次數 < 停損），否則會先被停損');
+    if (si.mode === 'favor' && strategy.tp > 0 && !(si.step < strategy.tp)) throw new Error('順勢加碼的間距必須小於停利，否則還沒加碼就已經停利出場');
+  }
+  if (strategy.dir === 'both' || (strategy.entryB && strategy.entryB.length)) {
+    if (ds.market !== 'perp') throw new Error('雙向／反手只支援 USDT 永續合約（現貨與台股不能做空）');
+    if (strategy.dir !== 'both') throw new Error('設定了做空進場條件，請把方向改成「雙向」');
+    if (!strategy.entry.length || !(strategy.entryB && strategy.entryB.length)) throw new Error('雙向策略需要同時設定「做多進場條件」與「做空進場條件」');
+    if (strategy.capitalMode === 'shared') throw new Error('雙向／反手目前不能和「共用資金池」一起用');
+  } else if (strategy.reverse) throw new Error('反手需要方向設為「雙向」');
   if (ds.market !== 'perp') {
     if (strategy.dir === 'short') throw new Error(ds.market === 'tw' ? '台股不支援做空' : '現貨市場無法做空');
     if ((strategy.lev || 1) !== 1) throw new Error('現貨市場不支援槓桿');
@@ -101,12 +137,20 @@ export function runStrategy(sig, strategy, costs, range, opts = {}) {
     return { equity: r.equity, trades, perSymbol, metrics, range };
   }
 
+  const dual = strategy.dir === 'both';
   for (let si = 0; si < nSym; si++) {
     const S = ds.symbols[si];
     const entries = sig.entryIdx(si, strategy.entry, strategy.entryMode || 'edge');
     const exitSig = sig.exitSignal(si, strategy.exit);
     const cfg = { ...cfg0, feeOut: costs.fee + taxOf(S), ...(exitSig ? { exitSig } : {}) };
-    const r = simulateSymbol(ds, S, entries, cfg, range, per, scratch);
+    let r;
+    if (dual) {
+      const entriesB = sig.entryIdx(si, strategy.entryB, strategy.entryMode || 'edge');
+      const flags = (idx) => { const f = new Uint8Array(ds.n); for (let i = 0; i < idx.length; i++) f[idx[i]] = 1; return f; };
+      const revA = strategy.reverse ? flags(entriesB) : null;
+      const revB = strategy.reverse ? flags(entries) : null;
+      r = simulateDual(ds, S, { entries, cfg: { ...cfg, dir: 1, ...(revA ? { revSig: revA } : {}) } }, { entries: entriesB, cfg: { ...cfg, dir: -1, ...(revB ? { revSig: revB } : {}) } }, range, per, scratch);
+    } else r = simulateSymbol(ds, S, entries, cfg, range, per, scratch);
     if (record) for (let i = 0; i < len; i++) total[i] += scratch[i];
     for (const t of r.trades) { t.symbol = S.symbol; t.si = si; trades.push(t); }
     liquidations += r.liquidations;
