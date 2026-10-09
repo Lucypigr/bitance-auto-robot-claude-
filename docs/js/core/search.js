@@ -196,7 +196,7 @@ export function selectChampions(evals, { minTrades = 20 } = {}) {
 export async function runSearch(sig, cfgIn, costs, hooks = {}) {
   const cfg = { ...SEARCH_DEFAULTS, ...cfgIn };
   const ds = sig.ds;
-  const ranges = splitRanges(ds, cfg.trainFrac);
+  const ranges = hooks.ranges || splitRanges(ds, cfg.trainFrac); // 走動式驗證會指定每一折的區間
   const emit = (info) => hooks.progress && hooks.progress(info);
   const cancelled = () => (hooks.cancelled ? hooks.cancelled() : false);
   const tick = async () => { if (hooks.yield) await hooks.yield(); };

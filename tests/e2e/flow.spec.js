@@ -415,3 +415,60 @@ test('自動搜尋也能用共用資金池與風險比例，並列入「進階�
   await expect(page.locator('#s-capmode')).toHaveValue('sleeve');
   await expect(page.getByTestId('adv-note')).toBeHidden();
 });
+
+test('參數敏感度：熱度圖、基準格標示、高原／孤島判斷與單一參數掃描', async ({ page }) => {
+  await page.goto('/index.html');
+  await page.locator('#tab-manual').click();
+  await page.selectOption('#m-template', 'overbought');
+  await page.selectOption('#days', '90');
+  await page.locator('#btn-manual').click();
+  await expect(page.getByTestId('compare')).toBeVisible({ timeout: 60000 });
+  await page.locator('[data-ctab="sens"]').click();
+  const sum = page.getByTestId('sens-summary');
+  await expect(sum).toBeVisible({ timeout: 60000 });
+  await expect(sum).toContainText('參數敏感度');
+  await expect(page.locator('#sens table.sens td.base')).not.toHaveCount(0);
+  await expect(page.locator('#sens')).toContainText('樣本外只能用來檢驗');
+  await expect(page.getByTestId('sens-params')).toContainText('槓桿');
+  await expect(page.getByTestId('sens-params')).toContainText('RSI');
+  // 重新切換分頁不會再重算（直接顯示）
+  await page.locator('[data-ctab="trades"]').click();
+  await page.locator('[data-ctab="sens"]').click();
+  await expect(page.getByTestId('sens-summary')).toBeVisible();
+});
+
+test('走動式驗證：多折、串接曲線、每折冠軍、可取消', async ({ page }) => {
+  await page.goto('/index.html');
+  await page.selectOption('#days', '365');
+  await page.selectOption('#s-budget', '30'); await page.fill('#s-min', '3');
+  await page.locator('#wf-adv summary').click();
+  await page.selectOption('#wf-folds', '3');
+  await page.locator('#btn-wf').click();
+  const wf = page.getByTestId('wf');
+  await expect(wf).toBeVisible({ timeout: 120000 });
+  await expect(wf.locator('h2')).toContainText('結果');
+  await expect(page.getByTestId('wf-folds').locator('tbody tr')).toHaveCount(3);
+  await expect(page.getByTestId('wf-summary')).toContainText('串接後淨報酬');
+  await expect(page.getByTestId('wf-summary')).toContainText('同期買入持有');
+  await expect(page.getByTestId('wf-verdict')).toContainText('走動式驗證驗證的是整套流程');
+  await expect(page.locator('#wf-chart canvas').first()).toBeVisible();
+  await expect(page.locator('.card.charts')).toBeHidden();
+  // 回到一般搜尋：走動式結果會被收起
+  await page.locator('#btn-search').click();
+  await expect(page.getByTestId('champ-netReturn')).toBeVisible({ timeout: 90000 });
+  await expect(wf).toBeHidden();
+});
+
+test('走動式驗證可取消', async ({ page }) => {
+  await page.goto('/index.html');
+  await page.selectOption('#days', '365');
+  await page.selectOption('#base-tf', '15m');
+  await page.selectOption('#s-budget', '300'); await page.selectOption('#s-maxc', '4'); await page.fill('#s-min', '3');
+  await page.locator('#wf-adv summary').click();
+  await page.selectOption('#wf-folds', '6');
+  await page.locator('#btn-wf').click();
+  await expect(page.locator('#search-progress .ptext')).toContainText('折', { timeout: 120000 });
+  await page.locator('#btn-cancel').click();
+  await expect(page.locator('#run-error')).toContainText('已取消', { timeout: 20000 });
+  await expect(page.locator('#btn-wf')).toBeEnabled();
+});

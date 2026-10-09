@@ -404,3 +404,79 @@ export function renderSymbolBreakdown(el, res, capital, ds) {
       <tbody>${body}<tr class="hl"><td><b>合計（＝總成績）</b></td>${tot(tr, res.train.metrics)}${tot(oo, res.holdout.metrics)}</tr></tbody></table></div>
     <div class="muted small">按「逐筆交易」分頁可以看到每一筆；也能用幣種篩選。</div>`;
 }
+
+// ---------------- 參數敏感度 ----------------
+const heatColor = (r) => `color-mix(in srgb, var(${r >= 0 ? '--up' : '--down'}) ${Math.min(80, Math.round((Math.abs(r) / 0.3) * 80))}%, var(--panel-2))`;
+
+export function renderSensitivity(el, d, strategy, ds) {
+  const unit = strategy.unit === 'usdt' ? ` ${strategy.cur || 'USDT'}` : '%';
+  const cls = { good: 'good', warn: 'warn', bad: 'bad', none: 'info' }[d.summary.level];
+  const heat = (sel, title) => {
+    const head = d.slAxis.length ? d.slAxis : [d.base.sl];
+    const rows = d.grid.map((row, j) => `<tr><th>${d.tpAxis.length ? d.tpAxis[j] + unit : '—'}</th>${row.map((c, i) => {
+      const isBase = Math.abs(c.sl - d.base.sl) < 1e-9 && Math.abs(c.tp - d.base.tp) < 1e-9;
+      return `<td class="${isBase ? 'base' : ''}" style="background:${heatColor(c[sel].netReturn)}" title="${c[sel].trades} 筆交易、勝率 ${c[sel].trades ? fmtPct(c[sel].winRate, 0) : '—'}">${fmtPct(c[sel].netReturn, 0, true)}</td>`;
+    }).join('')}</tr>`).join('');
+    return `<div><div class="label">${title}</div><div class="tbl-wrap"><table class="heat sens"><thead><tr><th>停利↓　停損→</th>${head.map((v) => `<th>${v ? v + unit : '—'}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table></div></div>`;
+  };
+  const params = d.params.map((p) => {
+    const cells = (sel) => p.points.map((pt) => `<td class="${Math.abs(pt.v - p.base) < 1e-9 ? 'base' : ''}" style="background:${heatColor(pt[sel].netReturn)}" title="${pt[sel].trades} 筆交易">${fmtPct(pt[sel].netReturn, 0, true)}</td>`).join('');
+    return `<tr><th class="txt">${esc(p.label)}</th>${p.points.map((pt) => `<th>${pt.v}${p.unit}</th>`).join('')}</tr>
+      <tr><th class="txt col-train">訓練期</th>${cells('train')}</tr><tr><th class="txt col-oos">樣本外</th>${cells('oos')}</tr>`;
+  }).join('<tr><td colspan="9" style="padding:4px"></td></tr>');
+  el.innerHTML = `<div class="note ${d.summary.level === 'none' ? 'info' : cls}" data-testid="sens-summary"><b>${term('param_sens', '參數敏感度')}：</b>${esc(d.summary.text)}</div>
+    <div class="note info">格子裡是「淨報酬」。有外框的是你目前的設定。<b>訓練期</b>可以用來判斷穩健度；<b>樣本外</b>只能用來檢驗，請不要拿它挑參數——挑了，它就不再是乾淨的驗證。</div>
+    ${d.grid.length > 1 || d.slAxis.length ? `<div class="sens-grid">${heat('train', '訓練期（停損 × 停利）')}${heat('oos', '樣本外（停損 × 停利）')}</div>` : ''}
+    ${d.params.length ? `<h3 style="margin:14px 0 6px;font-size:14px">單一參數掃描（其他參數不變）</h3><div class="tbl-wrap"><table class="heat sens" data-testid="sens-params"><tbody>${params}</tbody></table></div>` : ''}`;
+  void ds;
+}
+
+// ---------------- 走動式驗證 ----------------
+export function wfVerdict(wf) {
+  const s = wf.summary;
+  const list = [];
+  const add = (level, text) => list.push({ level, text });
+  if (s.foldsWithChampion < s.foldsTotal) add('warn', `${s.foldsTotal} 折中有 ${s.foldsTotal - s.foldsWithChampion} 折找不到合格的冠軍（交易數不足、清算或沒有獲利），那段時間是空手。`);
+  if (s.netReturn > 0 && s.positiveFolds >= Math.ceil(s.foldsTotal * 0.6)) add('good', `把所有測試期串起來，淨報酬 ${fmtPct(s.netReturn, 1, true)}，${s.positiveFolds}／${s.foldsTotal} 折獲利：這套「搜尋＋挑冠軍」的流程在過去每一段「事前不知道答案」的時間裡大致都有效。`);
+  else if (s.netReturn > 0) add('warn', `串接後的淨報酬 ${fmtPct(s.netReturn, 1, true)}，但只有 ${s.positiveFolds}／${s.foldsTotal} 折獲利：賺的錢集中在少數幾折，不夠穩定。`);
+  else add('bad', `串接後的淨報酬 ${fmtPct(s.netReturn, 1, true)}：如果過去每隔一段時間就用這個流程重新挑一次策略，結果是虧錢的。目前的搜尋範圍看不到可靠的優勢。`);
+  if (s.netReturn > 0 && s.netReturn < s.buyHold) add('info', `同一期間等權重買入持有是 ${fmtPct(s.buyHold, 1, true)}，高於策略；策略賺的錢沒有贏過「什麼都不做」。`);
+  if (s.netReturn <= 0 && s.buyHold < 0 && s.netReturn > s.buyHold) add('info', `同一期間買入持有是 ${fmtPct(s.buyHold, 1, true)}，策略虧得比較少（可能因為空手或停損保護）。`);
+  if (s.efficiency !== null && s.efficiency < 0.5) add('warn', `走動效率 ${fmtNum(s.efficiency, 2)}（理想接近 1）：訓練期的好表現大部分沒有延續到新資料，是過度擬合的典型現象。`);
+  if (s.trades < 20) add('warn', `全部測試期只有 ${s.trades} 筆交易，樣本太少，結果參考價值有限。`);
+  add('info', '走動式驗證驗證的是整套流程，不保證未來；折數與切法不同，結果也會不同。');
+  return list;
+}
+
+export function renderWalkForward(el, wf, ds, capital) {
+  const s = wf.summary;
+  const m = s.metrics;
+  const fd = (idx) => (ds.times ? fmtDateUTC(timeAt(ds, idx)) : fmtDate(timeAt(ds, idx)));
+  const rows = wf.folds.map((f) => `<tr>
+    <td>${f.k}</td><td>${fd(f.train.from)} ～ ${fd(f.train.to - 1)}</td><td>${fd(f.test.from)} ～ ${fd(f.test.to - 1)}</td>
+    <td class="txt">${f.hasChampion ? esc(f.desc) : '<span class="muted">（沒有合格冠軍 → 空手）</span>'}</td>
+    <td class="${signClass(f.trainMetrics ? f.trainMetrics.netReturn : 0)}">${f.trainMetrics ? fmtPct(f.trainMetrics.netReturn, 1, true) : '—'}</td>
+    <td class="${signClass(f.testMetrics.netReturn)}"><b>${fmtPct(f.testMetrics.netReturn, 1, true)}</b></td>
+    <td>${f.testMetrics.trades}</td><td class="${signClass(f.buyHold)}">${fmtPct(f.buyHold, 1, true)}</td></tr>`).join('');
+  el.innerHTML = `<h2>${term('walk_forward', '走動式驗證')}結果</h2>
+    <div class="muted small">${wf.folds.length} 折，訓練：測試 ＝ ${wf.ratio}：1，每折採用「${{ stable: '最穩定', netReturn: '最高淨報酬', winRate: '最高勝率' }[wf.follow]}」冠軍。測試期合計 ${s.spanDays.toFixed(0)} 天（${fd(wf.range.from)} ～ ${fd(wf.range.to - 1)}），每一段測試期都是「選策略時完全沒看過」的資料。</div>
+    <div class="tbl-wrap" style="margin:10px 0"><table class="tbl" data-testid="wf-summary"><tbody>
+      <tr><td>串接後淨報酬</td><td class="${signClass(s.netReturn)}"><b>${fmtPct(s.netReturn, 1, true)}</b></td><td>同期買入持有</td><td class="${signClass(s.buyHold)}">${fmtPct(s.buyHold, 1, true)}</td></tr>
+      <tr><td>最大回撤</td><td>${fmtPct(-m.maxDrawdown, 1)}</td><td>Sharpe</td><td>${fmtNum(m.sharpe)}</td></tr>
+      <tr><td>獲利的折數</td><td>${s.positiveFolds} ／ ${s.foldsTotal}</td><td>${term('wf_efficiency', '走動效率')}</td><td>${s.efficiency === null ? '—' : fmtNum(s.efficiency, 2)}</td></tr>
+      <tr><td>交易次數</td><td>${s.trades}</td><td>勝率／PF</td><td>${s.trades ? fmtPct(m.winRate, 0) : '—'}／${pfText(m.profitFactor)}</td></tr>
+    </tbody></table></div>
+    <ul class="verdict-list" data-testid="wf-verdict">${wfVerdict(wf).map((v) => `<li class="${v.level}">${esc(v.text)}</li>`).join('')}</ul>
+    <div id="wf-chart" class="chart-box" style="margin-top:12px"></div>
+    <div class="muted small"><span class="legend-dot" style="background:#4c82ff"></span>走動式驗證串接淨值（起點 ${fmtMoney(capital, 0)}，每折結束的淨值接到下一折）　<span class="legend-dot" style="background:var(--muted)"></span>等權重買入持有；垂直標記＝新的一折開始</div>
+    <div class="tbl-wrap" style="margin-top:10px"><table class="tbl" data-testid="wf-folds"><thead><tr><th>折</th><th>訓練期</th><th>測試期</th><th class="txt">當折採用的策略（只由訓練期挑出）</th><th>訓練報酬</th><th>測試報酬</th><th>測試交易</th><th>買入持有</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  const pts = (arr, scale) => Array.from(arr, (v, i) => ({ time: chartTime(ds, ds.times ? timeAt(ds, wf.range.from + i) : timeAt(ds, wf.range.from + i + 1)), value: v * scale }));
+  const markers = wf.folds.map((f) => ({ time: chartTime(ds, ds.times ? timeAt(ds, f.test.from) : timeAt(ds, f.test.from + 1)), position: 'aboveBar', color: '#f59e0b', shape: 'arrowDown', text: `第 ${f.k} 折` })).sort((a, b) => a.time - b.time);
+  lineChart(el.querySelector('#wf-chart'), {
+    series: [
+      { key: 'bh', title: '買入持有', color: cssVar('--muted'), data: downsample(pts(wf.bhChain, capital)), dashed: true, width: 1 },
+      { key: 'wf', title: '走動式驗證', color: '#4c82ff', data: downsample(pts(wf.chain, capital)) },
+    ],
+    markers: { wf: markers },
+  });
+}

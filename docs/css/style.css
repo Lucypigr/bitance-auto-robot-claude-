@@ -264,3 +264,11 @@ svg.ill .vbar.hot { fill: var(--accent); opacity: 1; }
 .cond-logic { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; margin-top: 6px; font-size: 13px; }
 .cond-logic select { width: auto; min-height: 32px; padding: 3px 8px; }
 .cond.neg { border-style: dashed; border-color: var(--down); }
+
+/* 敏感度熱度圖 */
+.sens-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+@media (max-width: 800px) { .sens-grid { grid-template-columns: 1fr; } }
+table.sens td { min-width: 46px; font-size: 12px; }
+table.sens td.base { outline: 2px solid var(--accent); outline-offset: -2px; font-weight: 700; }
+table.sens th { font-size: 12px; white-space: nowrap; }
+table.sens th.txt { text-align: left; min-width: 120px; white-space: normal; }

@@ -96,6 +96,7 @@ function setBusy(b, cancellable = false) {
   state.busy = b;
   $('btn-search').disabled = b;
   $('btn-manual').disabled = b;
+  $('btn-wf').disabled = b;
   $('btn-demo').disabled = b;
   $('btn-cancel').hidden = !(b && cancellable);
 }
@@ -541,6 +542,47 @@ async function runSearch() {
   } finally { setBusy(false); }
 }
 
+async function runWalk() {
+  showError('');
+  let cfg;
+  try { cfg = readSearchConfig(); } catch (e) { showError(e.message); return; }
+  cfg.folds = Number($('wf-folds').value); cfg.ratio = Number($('wf-ratio').value); cfg.follow = $('wf-follow').value;
+  state.abort = new AbortController();
+  setBusy(true, true);
+  const prog = $('search-progress');
+  try {
+    await ensureData(new Set(cfg.tfs));
+    const costs = readCosts();
+    setProgress(prog, 0, 1, '走動式驗證準備中…');
+    const wf = await compute.walkForward(cfg, costs, (p) => {
+      const frac = p.phase === 'eval' ? p.done / Math.max(1, p.total) : p.phase === 'done' ? 1 : 0;
+      const label = p.phase === 'eval' ? `第 ${p.fold}／${p.folds} 折：在訓練期測試候選 ${p.done}／${p.total}` : p.phase === 'validate' ? `第 ${p.fold}／${p.folds} 折：驗證冠軍` : `第 ${p.fold}／${p.folds} 折：產生候選組合…`;
+      setProgress(prog, (p.fold - 1) + frac, p.folds, label);
+    });
+    prog.hidden = true;
+    if (wf.cancelled) { showError('已取消走動式驗證'); return; }
+    state.searchResult = null;
+    showWalkForward(wf, costs);
+  } catch (e) {
+    if (e.kind !== 'abort') showError(e.message || String(e));
+    prog.hidden = true; $('load-progress').hidden = true;
+  } finally { setBusy(false); }
+}
+
+function showWalkForward(wf, costs) {
+  showResultShell();
+  state.view = null; state.searchResult = null;
+  destroyAll();
+  for (const id of ['r-champions', 'r-verdict', 'r-compare', 'r-symbols', 'r-diag']) $(id).hidden = true;
+  document.querySelector('.card.charts').hidden = true;
+  const ds = state.data.ds;
+  $('r-title').innerHTML = `<div><h2>走動式驗證</h2><div class="muted small">${costsNote(costs)}　${marketName()}　${ds.symbols.length} ${isTw() ? '檔' : '個幣種'}　候選數上限 ${wf.config.budget}、最低交易數 ${wf.config.minTrades}。</div></div>`;
+  $('r-wf').hidden = false;
+  R.renderWalkForward($('r-wf'), wf, ds, costs.capital);
+  decorate($('r-wf'));
+  $('r-wf').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
 async function cancelRun() {
   if (state.abort) state.abort.abort();
   await compute.cancel();
@@ -548,6 +590,7 @@ async function cancelRun() {
 
 // ---------------- 結果顯示 ----------------
 function showResultShell() {
+  $('r-wf').hidden = true;
   $('result-empty').hidden = true;
   $('result-body').hidden = false;
 }
@@ -576,7 +619,9 @@ function showSearchResult(result, costs) {
 
 function showDetail({ res, strategy, title, costs, keepHead, candidateId }) {
   showResultShell();
-  state.view = { res, strategy, costs, candidateId };
+  const tf = Math.round(((res.ranges.train.to - res.ranges.train.from) / (res.ranges.full.to - res.ranges.full.from)) * 100) / 100;
+  state.view = { res, strategy, costs, candidateId, trainFrac: tf };
+  state.sens = null;
   state.builtCharts = {};
   state.tradeView = { seg: '', symbol: '', page: 0 };
   const ds = state.data.ds;
@@ -590,7 +635,7 @@ function showDetail({ res, strategy, title, costs, keepHead, candidateId }) {
     const old = $('r-title').querySelectorAll('[data-testid="detail-head"]');
     if (old.length > 1) old[0].remove();
   }
-  $('r-verdict').hidden = false; $('r-compare').hidden = false; $('r-diag').hidden = false;
+  $('r-verdict').hidden = false; $('r-compare').hidden = false; $('r-diag').hidden = false; $('r-wf').hidden = true;
   document.querySelector('.card.charts').hidden = false;
   R.renderVerdict($('r-verdict'), res);
   R.renderCompare($('r-compare'), res, ds);
@@ -642,6 +687,7 @@ function buildTab(name) {
   if (!state.view) return;
   const { res, strategy, costs } = state.view;
   const ds = state.data.ds;
+  if (name === 'sens') { renderSens(); return; }
   if (name === 'trades') { renderTrades(); return; }
   if (name === 'monthly') { R.renderMonthly($('monthly'), res); return; }
   if (state.builtCharts[name]) return;
@@ -657,6 +703,21 @@ function buildTab(name) {
     R.buildDrawdownChart($('dd-chart'), res, ds, costs.capital);
   }
   void strategy;
+}
+
+async function renderSens() {
+  const v = state.view;
+  const el = $('sens');
+  if (!v) return;
+  if (state.sens && state.sens.view === v) { R.renderSensitivity(el, state.sens.data, v.strategy, state.data.ds); decorate(el); return; }
+  el.innerHTML = '<div class="muted" data-testid="sens-loading">計算中…（會在基準參數附近重跑幾十次回測）</div>';
+  try {
+    const data = await compute.sensitivity(v.strategy, v.costs, v.trainFrac);
+    if (state.view !== v) return;
+    state.sens = { view: v, data };
+    R.renderSensitivity(el, data, v.strategy, state.data.ds);
+    decorate(el);
+  } catch (e) { el.innerHTML = `<div class="note bad">計算失敗：${esc(e.message)}</div>`; }
 }
 
 function buildCandle() {
@@ -731,6 +792,7 @@ function bind() {
   $('pool-none').addEventListener('click', () => setPool([]));
   $('s-pool').addEventListener('change', () => { state.search.pool = readChecks('s-pool'); $('pool-count').textContent = `已選 ${state.search.pool.length} 個條件`; });
   $('btn-search').addEventListener('click', runSearch);
+  $('btn-wf').addEventListener('click', runWalk);
   $('btn-manual').addEventListener('click', runManual);
   $('btn-cancel').addEventListener('click', cancelRun);
   $('btn-demo').addEventListener('click', runDemo);

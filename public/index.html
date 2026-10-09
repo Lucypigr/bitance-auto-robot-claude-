@@ -211,6 +211,16 @@
           <b>進階設定目前不是預設值：</b><span id="adv-list"></span>
           <div style="margin-top:6px"><button type="button" class="btn small" id="adv-reset">一鍵恢復全部進階預設</button></div>
         </div>
+        <details class="adv" id="wf-adv">
+          <summary>進階：走動式驗證（Walk-forward）</summary>
+          <p class="muted small"><span data-term="walk_forward">走動式驗證</span>會把資料切成多折，每折只用「該折訓練期」重新搜尋、挑冠軍，再交易緊接的測試期，最後串起來看。使用上面所有搜尋設定（候選數、條件、停損停利範圍…）。</p>
+          <div class="grid2">
+            <div class="field"><label class="label" for="wf-folds">折數</label><select id="wf-folds"><option>3</option><option selected>4</option><option>5</option><option>6</option></select></div>
+            <div class="field"><label class="label" for="wf-ratio">訓練 ： 測試</label><select id="wf-ratio"><option value="2">2 ： 1</option><option value="3" selected>3 ： 1</option><option value="4">4 ： 1</option></select></div>
+            <div class="field"><label class="label" for="wf-follow">每折採用的冠軍</label><select id="wf-follow"><option value="stable" selected>最穩定</option><option value="netReturn">最高淨報酬</option><option value="winRate">最高勝率</option></select></div>
+          </div>
+          <button id="btn-wf" class="btn block" type="button">開始走動式驗證</button>
+        </details>
         <div class="row gap">
           <button id="btn-search" class="btn primary grow" type="button">開始搜尋</button>
           <button id="btn-cancel" class="btn danger" type="button" hidden>取消</button>
@@ -282,6 +292,7 @@
 
     <div id="result-body" hidden>
       <div id="r-title" class="card result-head"></div>
+      <div id="r-wf" class="card" hidden data-testid="wf"></div>
       <div id="r-champions" class="champions" hidden></div>
       <div id="r-verdict" class="card"></div>
       <div id="r-compare" class="card"></div>
@@ -293,6 +304,7 @@
           <button type="button" class="tab" role="tab" data-ctab="equity" aria-selected="false">淨值曲線</button>
           <button type="button" class="tab" role="tab" data-ctab="drawdown" aria-selected="false">回撤</button>
           <button type="button" class="tab" role="tab" data-ctab="monthly" aria-selected="false">每月報酬</button>
+          <button type="button" class="tab" role="tab" data-ctab="sens" aria-selected="false" id="tab-sens">參數敏感度</button>
           <button type="button" class="tab" role="tab" data-ctab="trades" aria-selected="false">逐筆交易</button>
           <button type="button" class="tab" role="tab" data-ctab="board" aria-selected="false" id="tab-board" hidden>候選排行榜</button>
         </div>
@@ -310,6 +322,7 @@
         <div id="ctab-equity" class="ctab" hidden><div id="equity-chart" class="chart-box"></div><div class="muted small" id="equity-legend"></div></div>
         <div id="ctab-drawdown" class="ctab" hidden><div id="dd-chart" class="chart-box"></div></div>
         <div id="ctab-monthly" class="ctab" hidden><div id="monthly"></div></div>
+        <div id="ctab-sens" class="ctab" hidden><div id="sens"></div></div>
         <div id="ctab-trades" class="ctab" hidden><div id="trades"></div></div>
         <div id="ctab-board" class="ctab" hidden><div id="board"></div></div>
       </div>
