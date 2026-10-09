@@ -60,6 +60,20 @@ export function intersectSorted(a, b) {
   return out.slice(0, n);
 }
 
+/** 兩個遞增排序的 Int32Array 求聯集（去重） */
+export function unionSorted(a, b) {
+  const out = new Int32Array(a.length + b.length);
+  let i = 0;
+  let j = 0;
+  let n = 0;
+  while (i < a.length || j < b.length) {
+    let v;
+    if (j >= b.length || (i < a.length && a[i] <= b[j])) { v = a[i++]; if (j < b.length && b[j] === v) j++; } else v = b[j++];
+    if (n === 0 || out[n - 1] !== v) out[n++] = v;
+  }
+  return out.slice(0, n);
+}
+
 export function alignDown(t, step) {
   return Math.floor(t / step) * step;
 }

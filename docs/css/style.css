@@ -259,3 +259,8 @@ svg.ill .vbar.hot { fill: var(--accent); opacity: 1; }
 .cond-text { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .cond-thumb { order: 2; flex: 0 0 96px; width: 96px; }
 .pool-item { display: inline-flex; align-items: center; gap: 0; margin-right: 6px; }
+
+/* 條件邏輯 */
+.cond-logic { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; margin-top: 6px; font-size: 13px; }
+.cond-logic select { width: auto; min-height: 32px; padding: 3px 8px; }
+.cond.neg { border-style: dashed; border-color: var(--down); }

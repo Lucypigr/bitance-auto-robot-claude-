@@ -191,6 +191,16 @@
           </div>
           <label class="check"><input id="s-opp" type="checkbox"> <span data-term="opposite_conditions">允許逆向條件</span></label>
         </details>
+        <details class="adv" id="s-rules-adv">
+          <summary>進階：部位規則（資金池、同時持倉數、風險比例）</summary>
+          <div class="grid2">
+            <div class="field"><label class="label" for="s-capmode"><span data-term="capital_mode">資金模式</span></label>
+              <select id="s-capmode"><option value="sleeve" selected>各標的獨立資金袋</option><option value="shared">共用資金池</option></select></div>
+            <div class="field" id="s-maxpos-field"><label class="label" for="s-maxpos"><span data-term="max_pos">同時最多持倉</span>（檔）</label><input id="s-maxpos" type="number" min="1" step="1" value="1"></div>
+            <div class="field"><label class="label" for="s-risk"><span data-term="risk_sizing">每筆風險</span>（帳戶淨值 %，0＝不用）</label><input id="s-risk" type="number" min="0" max="100" step="0.1" value="0"></div>
+          </div>
+          <div class="muted small">每筆風險需要所有候選都有停損（搜尋的停損範圍預設已有）。</div>
+        </details>
         <details class="adv" id="pool-adv">
           <summary>自訂搜尋的指標池（<span id="pool-count"></span>）</summary>
           <p class="muted small"><span data-term="indicator_pool">指標池</span>＝自動搜尋可以挑選的條件。預設包含 RSI、EMA／MACD 交叉、布林通道與全部 9 種 K 線型態；你可以另外勾選其他指標，或只留下想研究的。</p>
@@ -222,7 +232,7 @@
           </div>
         </div>
         <div class="field">
-          <div class="label">進場條件 <span class="muted">（全部成立才進場，AND）</span></div>
+          <div class="label">進場條件 <span class="muted">（預設全部成立才進場＝<span data-term="cond_logic">且</span>；也可以設成「或」群組、或勾「非」）</span></div>
           <div id="m-entry"></div>
           <button type="button" class="btn small" id="m-add-entry">＋ 新增條件</button>
           <div id="m-summary" class="note info"></div>
@@ -242,6 +252,16 @@
           <div class="field"><label class="label" for="m-entrymode"><span data-term="entry_mode">進場方式</span></label>
             <select id="m-entrymode"><option value="edge" selected>條件剛成立才進場</option><option value="level">成立期間都可進場</option></select></div>
         </div>
+        <details class="adv" id="m-rules-adv">
+          <summary>進階：部位規則（資金池、同時持倉數、風險比例）</summary>
+          <div class="grid2">
+            <div class="field"><label class="label" for="m-capmode"><span data-term="capital_mode">資金模式</span></label>
+              <select id="m-capmode"><option value="sleeve" selected>各標的獨立資金袋</option><option value="shared">共用資金池</option></select></div>
+            <div class="field" id="m-maxpos-field"><label class="label" for="m-maxpos"><span data-term="max_pos">同時最多持倉</span>（檔）</label><input id="m-maxpos" type="number" min="1" step="1" value="1"></div>
+            <div class="field"><label class="label" for="m-risk"><span data-term="risk_sizing">每筆風險</span>（帳戶淨值 %，0＝不用）</label><input id="m-risk" type="number" min="0" max="100" step="0.1" value="0"></div>
+          </div>
+          <div class="muted small">風險比例需要先設定停損（%）。部位大小＝讓「停損時剛好虧到帳戶淨值的這個 %」，仍受「每筆投入比例」上限限制。</div>
+        </details>
         <details class="adv">
           <summary>進階：出場條件（任一成立就在下一根開盤出場）</summary>
           <div id="m-exit"></div>

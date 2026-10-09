@@ -390,20 +390,42 @@ export function normalizeSpec(spec) {
     tf: spec.tf,
     params: { ...def.params, ...(spec.params || {}) },
     within: Math.max(1, Math.floor(spec.within || 1)),
+    neg: !!spec.neg, // NOT：條件「不成立」時才算
+    grp: spec.grp || '', // 相同群組代號的條件之間是 OR；不同群組之間是 AND；空字串＝自己獨立一組
   };
 }
 
 export function specKey(spec) {
   const s = normalizeSpec(spec);
   const p = Object.keys(s.params).sort().map((k) => `${k}=${s.params[k]}`).join(',');
-  return `${s.tf}|${s.id}|${p}|w${s.within}`;
+  return `${s.neg ? '!' : ''}${s.tf}|${s.id}|${p}|w${s.within}`;
 }
 
 export function describeSpec(spec) {
   const s = normalizeSpec(spec);
   const def = CONDITIONS[s.id];
   const win = s.within > 1 ? `（${s.within} 根內曾出現）` : '';
-  return `${s.tf} ${def.text(s.params)}${win}`;
+  const base = `${s.tf} ${def.text(s.params)}${win}`;
+  return s.neg ? `非（${base}）` : base;
+}
+
+/** 把進場條件分組：同群組 → OR；群組之間 → AND。未指定群組的條件各自獨立成一組（＝純 AND，與舊版相同） */
+export function entryGroups(specs) {
+  const groups = [];
+  const byId = new Map();
+  for (const raw of specs) {
+    const s = normalizeSpec(raw);
+    if (s.grp) {
+      if (!byId.has(s.grp)) { byId.set(s.grp, []); groups.push(byId.get(s.grp)); }
+      byId.get(s.grp).push(s);
+    } else groups.push([s]);
+  }
+  return groups;
+}
+
+/** 「(A 或 B) 且 C 且 非（D）」 */
+export function describeEntry(specs) {
+  return entryGroups(specs).map((g) => (g.length > 1 ? `(${g.map(describeSpec).join(' 或 ')})` : describeSpec(g[0]))).join(' 且 ');
 }
 
 /** 「最近 within 根（含當根）內曾成立」—— 只回看過去，沒有偷看未來 */
