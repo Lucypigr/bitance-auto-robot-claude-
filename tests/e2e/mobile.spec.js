@@ -32,12 +32,12 @@ test('手機：新手篇不橫向捲動、可翻到最後一頁並關閉', async
   await page.locator('#btn-tutorial').click();
   const dlg = page.getByTestId('tutorial');
   await expect(dlg).toBeVisible();
-  for (let i = 0; i < 6; i++) {
+  for (let i = 0; i < 7; i++) {
     const over = await page.evaluate(() => { const b = document.querySelector('.tut-panel'); return b.scrollWidth - b.clientWidth; });
     expect(over).toBeLessThanOrEqual(1);
-    if (i < 6) await dlg.locator('.tut-next').click();
+    if (i < 7) await dlg.locator('.tut-next').click();
   }
-  await expect(dlg).toContainText('下一步學什麼');
+  await expect(dlg).toContainText('注意事項（請務必看）');
   await dlg.locator('[data-tut-close]').click();
   await expect(dlg).toBeHidden();
 });

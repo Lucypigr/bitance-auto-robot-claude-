@@ -1,5 +1,6 @@
 // 新手篇：分頁式教學（純靜態內容，名詞旁的 ⓘ 沿用說明表）
 import { decorate } from './info.js';
+import { notesHtml } from './notes.js';
 
 export const PAGES = [
   {
@@ -17,6 +18,7 @@ export const PAGES = [
           <li>真實成交一定跟模擬一樣</li>
           <li>賺得多＝策略好（可能只是運氣或<span data-term="overfitting">過度擬合</span>）</li></ul></div>
       </div>
+      <p class="tut-tip">📌 完整注意事項在教學的最後一頁。</p>
       <p class="tut-tip">💡 本平台只用<b>已收盤</b>的 K 線做判斷、下一根開盤才成交（沒有偷看未來），而且手續費、滑價、槓桿、資金費率、清算都算進去，所以結果會比「不扣成本」的網站保守。</p>`,
   },
   {
@@ -110,7 +112,13 @@ export const PAGES = [
         <li><b>各幣種損益</b>：多幣種時，檢查是誰賺、誰賠。</li>
       </ul>
       <p class="tut-tip">⚠ 本平台僅供學習與研究，不構成投資建議。任何策略上線前，請先用你負擔得起的小額資金驗證。</p>
-      <div class="tut-actions"><button type="button" class="btn primary" data-tut-close>我懂了，開始使用</button></div>`,
+      <div class="tut-actions"><button type="button" class="btn primary" data-tut-next>下一頁：注意事項 →</button></div>`,
+  },
+  {
+    id: 'notes',
+    title: '⚠ 注意事項（請務必看）',
+    html: `<p>使用結果前，請先了解這些限制與常見誤區：</p>${notesHtml()}
+      <div class="tut-actions"><button type="button" class="btn primary" data-tut-close>我了解了，開始使用</button></div>`,
   },
 ];
 
@@ -168,6 +176,7 @@ function build() {
     if (t.closest('.tut-prev')) go(page - 1);
     else if (t.closest('.tut-next')) go(page + 1);
     else if (t.closest('.tut-dot')) go(+t.closest('.tut-dot').dataset.i);
+    else if (t.closest('[data-tut-next]')) go(page + 1);
     else if (t.closest('[data-tut-demo]')) { closeTutorial(); onDemo(); }
   });
   document.addEventListener('keydown', (e) => {
@@ -187,6 +196,8 @@ function build() {
 
 export function initTutorial({ demo } = {}) {
   if (demo) onDemo = demo;
-  for (const el of document.querySelectorAll('[data-open-tutorial]')) el.addEventListener('click', () => openTutorial(0));
+  for (const el of document.querySelectorAll('[data-open-tutorial]')) {
+    el.addEventListener('click', () => { const i = PAGES.findIndex((p) => p.id === el.dataset.openTutorial); openTutorial(i < 0 ? 0 : i); });
+  }
   try { if (localStorage.getItem('tutorial-seen')) document.querySelectorAll('.tut-new').forEach((e) => e.classList.remove('tut-new')); } catch { /* ignore */ }
 }

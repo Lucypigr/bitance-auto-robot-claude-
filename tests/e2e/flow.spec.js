@@ -513,3 +513,116 @@ test('自動搜尋：開啟「同時搜尋指標參數」會顯示提醒、列�
   await expect(page.locator('#s-psearch')).not.toBeChecked();
   await expect(page.locator('#s-psearch-note')).toBeHidden();
 });
+
+test('儲存／匯出／我的回測：存 2 筆、並排比較（含設定不同警告）、載入設定、CSV／JSON 匯出匯入、刪除', async ({ page }) => {
+  const fs = await import('node:fs');
+  await page.goto('/index.html');
+  await page.evaluate(() => localStorage.removeItem('bt.library.v1'));
+  await page.reload();
+  await page.locator('#tab-manual').click();
+  await page.selectOption('#days', '90');
+  await page.selectOption('#m-template', 'golden');
+  await page.locator('#btn-manual').click();
+  await expect(page.getByTestId('compare')).toBeVisible({ timeout: 60000 });
+  await expect(page.getByTestId('actions')).toBeVisible();
+
+  // 匯出 CSV：UTF-8 BOM、表頭、交易筆數與畫面一致
+  const [dl] = await Promise.all([page.waitForEvent('download'), page.locator('[data-act="trades"]').click()]);
+  expect(dl.suggestedFilename()).toMatch(/^trades-perp-\d{4}-\d{2}-\d{2}\.csv$/);
+  const csv = fs.readFileSync(await dl.path(), 'utf8');
+  expect(csv.charCodeAt(0)).toBe(0xfeff);
+  expect(csv).toContain('#,期間,代號');
+  const [dl2] = await Promise.all([page.waitForEvent('download'), page.locator('[data-act="equity"]').click()]);
+  expect(fs.readFileSync(await dl2.path(), 'utf8')).toContain('策略淨值');
+
+  // 第一筆
+  await page.locator('[data-act="save"]').click();
+  await expect(page.locator('#toast')).toContainText('已儲存');
+  await expect(page.locator('#lib-count')).toHaveText('1');
+  // 第二筆：換範本、手續費不同
+  await page.selectOption('#m-template', 'oversold');
+  await page.locator('#feePct').evaluate((el) => { el.closest('details').open = true; });
+  await page.fill('#feePct', '0.1');
+  await page.locator('#btn-manual').click();
+  await expect(page.getByTestId('compare')).toBeVisible({ timeout: 60000 });
+  await page.locator('[data-act="save"]').click();
+  await expect(page.locator('#lib-count')).toHaveText('2');
+
+  // 清單與並排比較
+  await page.locator('#btn-library').click();
+  const dlg = page.getByTestId('library');
+  await expect(dlg.locator('.lib-item')).toHaveCount(2);
+  await expect(dlg.locator('[data-lib="compare"]')).toBeDisabled();
+  await dlg.locator('[data-lib-sel]').nth(0).check();
+  await dlg.locator('[data-lib-sel]').nth(1).check();
+  await dlg.locator('[data-lib="compare"]').click();
+  await expect(dlg.getByTestId('cmp-table')).toBeVisible();
+  await expect(dlg.getByTestId('cmp-warn')).toContainText('手續費');
+  await expect(dlg.getByTestId('cmp-chart')).toBeVisible();
+  await expect(dlg.getByTestId('cmp-table')).toContainText('淨報酬');
+  await dlg.locator('input[name="lib-seg"][value="train"]').check();
+  await expect(dlg.getByTestId('cmp-table')).toBeVisible();
+  await dlg.locator('[data-lib="back"]').first().click();
+
+  // 單筆匯出 → 刪除 → 匯入還原
+  const [dl3] = await Promise.all([page.waitForEvent('download'), dlg.locator('[data-lib="export"]').first().click()]);
+  const jsonPath = await dl3.path();
+  const obj = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
+  expect(obj.v).toBe(1);
+  expect(obj.market).toBe('perp');
+  page.once('dialog', (d) => d.accept());
+  await dlg.locator('[data-lib="delete"]').first().click();
+  await expect(dlg.locator('.lib-item')).toHaveCount(1);
+  await expect(page.locator('#lib-count')).toHaveText('1');
+  await dlg.locator('#lib-file').setInputFiles(jsonPath);
+  await expect(dlg.locator('.lib-item')).toHaveCount(2);
+  // 壞檔：明確提示、不變動
+  fs.writeFileSync(jsonPath + '.bad', '{"v":1,"market":"x"}');
+  await dlg.locator('#lib-file').setInputFiles(jsonPath + '.bad');
+  await expect(page.locator('#toast')).toContainText('匯入失敗');
+  await expect(dlg.locator('.lib-item')).toHaveCount(2);
+
+  // 載入設定：天數與策略回到儲存時的樣子
+  await page.keyboard.press('Escape');
+  await page.selectOption('#days', '30');
+  await page.fill('#feePct', '0.3');
+  await page.locator('#btn-library').click();
+  await dlg.locator('[data-lib="load"]').first().click();
+  await expect(dlg).toBeHidden();
+  await expect(page.locator('#days')).toHaveValue('90');
+  await expect(page.locator('#feePct')).not.toHaveValue('0.3');
+  await expect(page.locator('#tab-manual')).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator('#m-entry .cond')).toHaveCount(1);
+
+  // 重新整理後仍在
+  await page.reload();
+  await expect(page.locator('#lib-count')).toHaveText('2');
+});
+
+test('注意事項：免責列連結直接開到注意事項頁；自動搜尋有排行榜 CSV；走動式有 CSV', async ({ page }) => {
+  const fs = await import('node:fs');
+  await page.goto('/index.html');
+  await page.locator('.disclaimer .linkbtn').click();
+  const dlg = page.getByTestId('tutorial');
+  await expect(dlg).toContainText('注意事項（請務必看）');
+  await expect(dlg).toContainText('倖存者偏差');
+  await expect(dlg).toContainText('我的回測');
+  await page.keyboard.press('Escape');
+
+  await page.locator('[data-preset="3"]').click();
+  await page.selectOption('#days', '90'); await page.selectOption('#s-budget', '30'); await page.fill('#s-min', '3');
+  await page.locator('#btn-search').click();
+  await expect(page.getByTestId('champ-netReturn')).toBeVisible({ timeout: 90000 });
+  const [dl] = await Promise.all([page.waitForEvent('download'), page.locator('[data-act="board"]').click()]);
+  const csv = fs.readFileSync(await dl.path(), 'utf8');
+  expect(csv).toContain('訓練期淨報酬');
+  expect(csv.split('\r\n').length).toBeGreaterThan(5);
+
+  await page.locator('#wf-adv summary').click();
+  await page.locator('#btn-wf').click();
+  await page.getByTestId('wf').waitFor({ timeout: 120000 });
+  const [dl2] = await Promise.all([page.waitForEvent('download'), page.locator('[data-act="wf-folds"]').click()]);
+  expect(fs.readFileSync(await dl2.path(), 'utf8')).toContain('採用策略');
+  const [dl3] = await Promise.all([page.waitForEvent('download'), page.locator('[data-act="wf-chain"]').click()]);
+  expect(fs.readFileSync(await dl3.path(), 'utf8')).toContain('走動式驗證淨值');
+});

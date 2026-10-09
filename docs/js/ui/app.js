@@ -13,6 +13,8 @@ import * as R from './results.js';
 import { diagnoseStrategy, diagnoseSearch } from '../core/diagnose.js';
 import { fmtMoney, fmtPct } from './format.js';
 import { initTutorial } from './tutorial.js';
+import { createLibrary, downloadText, toast } from './library-ui.js';
+import { makeSnapshot, tradesRows, equityRows, boardRows, foldsRows, wfChainRows, toCsv, exportJson } from '../core/report.js';
 
 const $ = (id) => document.getElementById(id);
 const MAX_SYMBOLS = 15;
@@ -20,6 +22,7 @@ const FALLBACK_SYMBOLS = ['BTC', 'ETH', 'BNB', 'SOL', 'XRP', 'DOGE', 'ADA', 'AVA
 const TW_FALLBACK = [['2330', '台積電'], ['2317', '鴻海'], ['2454', '聯發科'], ['2881', '富邦金'], ['2412', '中華電'], ['0050', '元大台灣50'], ['00878', '國泰永續高股息']].map(([symbol, base]) => ({ symbol, base, quoteVolume: 0, change24h: 0, isEtf: /^00/.test(symbol) }));
 const MAX_DAYS = { '5m': 365, '15m': 730, '1h': 1095, '4h': 1095, '1d': 1095 };
 
+let library;
 const state = {
   market: 'perp',
   symbols: ['BTCUSDT', 'ETHUSDT'],
@@ -578,6 +581,85 @@ async function runWalk() {
   } finally { setBusy(false); }
 }
 
+// ---------------- 儲存／匯出／我的回測 ----------------
+const todayStr = () => new Date().toISOString().slice(0, 10);
+function costsRawOf(c) {
+  return { capital: c.capital, posPct: c.posPct * 100, feePct: c.fee * 100, slipPct: c.slippage * 100, mmrPct: c.mmr * 100, taxPct: (c.tax || 0) * 100, taxEtfPct: (c.taxEtf || 0) * 100, minFee: c.minFee || 0 };
+}
+function currentSnapshot(name) {
+  const v = state.view;
+  const ds = state.data.ds;
+  const [market, , baseTf, days, useMark] = JSON.parse(state.data.key);
+  const bh = R.buyHoldCurve(ds, v.res.ranges.full, v.costs.capital);
+  const desc = describeStrategy(v.strategy);
+  return makeSnapshot({ res: v.res, ds, strategy: v.strategy, costsRaw: costsRawOf(v.costs), useMark, trainFrac: v.trainFrac, days, market, baseTf, desc, name: name || desc, bh });
+}
+function renderActions(mode) {
+  const el = $('r-actions');
+  const btn = (act, label, title) => `<button type="button" class="btn small" data-act="${act}" ${title ? `title="${esc(title)}"` : ''}>${label}</button>`;
+  const parts = [];
+  if (mode === 'detail') parts.push(btn('save', '💾 儲存這次回測', '存在這台裝置的瀏覽器，之後可載入設定、並排比較'), btn('trades', '⬇ 交易明細 CSV'), btn('equity', '⬇ 淨值曲線 CSV'), btn('json', '⬇ 完整報告 JSON', '含策略、設定與績效，可備份或在另一台裝置匯入'));
+  if ((mode === 'detail' || mode === 'search') && state.searchResult) parts.push(btn('board', '⬇ 候選排行榜 CSV', '全部候選的訓練期成績'));
+  if (mode === 'wf') parts.push(btn('wf-folds', '⬇ 各折明細 CSV'), btn('wf-chain', '⬇ 串接淨值 CSV'));
+  parts.push('<span class="grow"></span>', btn('library', '📁 我的回測'));
+  el.innerHTML = `${parts.join('')}<div class="muted small" style="flex-basis:100%">匯出的時間一律是 UTC；CSV 用 UTF-8（含 BOM），可直接用 Excel 開啟。</div>`;
+  el.hidden = false;
+}
+async function onAction(act) {
+  try {
+    if (act === 'library') { library.open(); return; }
+    const ds = state.data.ds;
+    const tag = `${state.market}-${todayStr()}`;
+    if (act === 'save') {
+      const r = library.save(currentSnapshot());
+      toast(`已儲存到「我的回測」${r.dropped ? `（超過上限，已丟掉最舊的 ${r.dropped} 筆）` : ''}。可在右上角「📁 我的回測」載入設定或並排比較。`);
+    } else if (act === 'trades') downloadText(`trades-${tag}.csv`, toCsv(tradesRows(state.view.res, ds)), 'text/csv');
+    else if (act === 'equity') downloadText(`equity-${tag}.csv`, toCsv(equityRows(state.view.res, ds, state.view.costs.capital, R.buyHoldCurve(ds, state.view.res.ranges.full, state.view.costs.capital))), 'text/csv');
+    else if (act === 'json') downloadText(`backtest-${tag}.json`, exportJson([currentSnapshot()]), 'application/json');
+    else if (act === 'board') downloadText(`candidates-${tag}.csv`, toCsv(boardRows(state.searchResult)), 'text/csv');
+    else if (act === 'wf-folds') downloadText(`walkforward-folds-${tag}.csv`, toCsv(foldsRows(state.wf.wf, ds)), 'text/csv');
+    else if (act === 'wf-chain') downloadText(`walkforward-equity-${tag}.csv`, toCsv(wfChainRows(state.wf.wf, ds, state.wf.costs.capital)), 'text/csv');
+  } catch (e) { toast(e.message || String(e)); }
+}
+
+/** 把已儲存的設定（市場、標的、週期、天數、成本、策略）整組載回左側表單 */
+async function restoreSnapshot(s) {
+  showError('');
+  setMarket(s.market, true);
+  await loadSymbolList(s.market);
+  state.symbols = s.symbols.map((x) => x.symbol).slice(0, MAX_SYMBOLS);
+  renderSymbols();
+  setBaseTf(s.baseTf);
+  const dayOpt = [...$('days').options].find((o) => Number(o.value) === s.days && !o.disabled);
+  if (dayOpt) { state.days = s.days; $('days').value = String(s.days); }
+  const c = s.costsRaw || {};
+  const put = (id, v) => { if (Number.isFinite(v)) $(id).value = String(v); };
+  put('capital', c.capital); put('posPct', c.posPct); put('feePct', c.feePct); put('slipPct', c.slipPct); put('mmrPct', c.mmrPct);
+  if (s.market === 'tw') { put('taxPct', c.taxPct); put('taxEtfPct', c.taxEtfPct); put('minFee', c.minFee); }
+  $('useMark').checked = s.useMark;
+  const tp = String(Math.round(s.trainFrac * 100));
+  if ([...$('train-pct').options].some((o) => o.value === tp)) $('train-pct').value = tp;
+  applyManualStrategy(s.strategy);
+  document.querySelector('[data-tab="manual"]').click();
+  updateDataWarn(); saveSettings();
+  toast(`已載入「${s.name}」的設定到「手動設定策略」，按「執行回測」即可重跑。`);
+  $('step2').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+function applyManualStrategy(st) {
+  const m = state.manual;
+  Object.assign(m, {
+    dir: st.dir === 'short' && state.market !== 'perp' ? 'long' : st.dir, entry: JSON.parse(JSON.stringify(st.entry || [])), exit: JSON.parse(JSON.stringify(st.exit || [])),
+    sl: st.sl || 0, tp: st.tp || 0, trail: st.trail || 0, lev: state.market === 'perp' ? st.lev || 1 : 1, maxBars: st.maxBars || 0,
+    unit: st.unit || 'pct', posUsdt: st.posUsdt || 0, entryMode: st.entryMode || 'edge', capitalMode: st.capitalMode || 'sleeve', maxPos: st.maxPos || 1, riskPct: st.riskPct || 0,
+  });
+  for (const c of [...m.entry, ...m.exit]) if (tfIndex(c.tf) < tfIndex(state.baseTf)) c.tf = state.baseTf;
+  $('m-unit').value = m.unit; $('m-usdt').value = m.posUsdt; $('m-sl').value = m.sl; $('m-tp').value = m.tp; $('m-trail').value = m.trail;
+  $('m-lev').value = m.lev; $('m-lev-out').textContent = `${m.lev}×`; $('m-maxbars').value = m.maxBars; $('m-entrymode').value = m.entryMode;
+  $('m-capmode').value = m.capitalMode; $('m-maxpos').value = m.maxPos; $('m-risk').value = m.riskPct;
+  if (m.capitalMode === 'shared' || m.riskPct > 0) $('m-rules-adv').open = true;
+  setDir(m.dir);
+}
+
 function showWalkForward(wf, costs) {
   showResultShell();
   state.view = null; state.searchResult = null;
@@ -586,6 +668,8 @@ function showWalkForward(wf, costs) {
   document.querySelector('.card.charts').hidden = true;
   const ds = state.data.ds;
   $('r-title').innerHTML = `<div><h2>走動式驗證</h2><div class="muted small">${costsNote(costs)}　${marketName()}　${ds.symbols.length} ${isTw() ? '檔' : '個幣種'}　候選數上限 ${wf.config.budget}、最低交易數 ${wf.config.minTrades}。</div></div>`;
+  state.wf = { wf, costs };
+  renderActions('wf');
   $('r-wf').hidden = false;
   R.renderWalkForward($('r-wf'), wf, ds, costs.capital);
   decorate($('r-wf'));
@@ -611,6 +695,7 @@ function showSearchResult(result, costs) {
     <div class="muted small">共測試 <b>${n}</b> 組候選（上限 ${result.config.budget}）；符合冠軍資格 ${result.eligibleCount} 組。${costsNote(costs)}。冠軍只用<b>訓練期</b>挑選，<b>樣本外</b>只做驗收。</div>
     ${result.warnings.map((w) => `<div class="note warn">${esc(w)}</div>`).join('')}${R.renderSearchTips(diagnoseSearch(result, state.data.ds))}</div>`;
   $('r-champions').hidden = false;
+  renderActions('search');
   R.renderChampions($('r-champions'), result);
   $('tab-board').hidden = false;
   const first = result.champions.stable || result.champions.netReturn || result.champions.winRate;
@@ -646,6 +731,7 @@ function showDetail({ res, strategy, title, costs, keepHead, candidateId }) {
   }
   $('r-verdict').hidden = false; $('r-compare').hidden = false; $('r-diag').hidden = false; $('r-wf').hidden = true;
   document.querySelector('.card.charts').hidden = false;
+  renderActions('detail');
   R.renderVerdict($('r-verdict'), res);
   R.renderCompare($('r-compare'), res, ds);
   $('r-symbols').hidden = false;
@@ -863,6 +949,10 @@ async function init() {
   initInfo();
   decorate(document);
   initTutorial({ demo: () => runDemo() });
+  library = createLibrary({ restore: restoreSnapshot, onChange: (n) => { $('lib-count').textContent = n; } });
+  $('lib-count').textContent = library.count();
+  $('btn-library').addEventListener('click', () => library.open());
+  $('r-actions').addEventListener('click', (e) => { const b = e.target.closest('[data-act]'); if (b) onAction(b.dataset.act); });
   const s = loadSettings();
   if (s.costs) {
     $('capital').value = s.costs.capital ?? 10000; $('posPct').value = s.costs.posPct ?? 100;
