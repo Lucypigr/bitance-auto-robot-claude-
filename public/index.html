@@ -192,6 +192,8 @@
               <select id="s-entrymode"><option value="edge" selected>條件剛成立才進場</option><option value="level">成立期間都可進場</option></select></div>
           </div>
           <label class="check"><input id="s-opp" type="checkbox"> <span data-term="opposite_conditions">允許逆向條件</span></label>
+          <label class="check"><input id="s-psearch" type="checkbox"> <span data-term="param_search">同時搜尋指標參數</span>（RSI 週期、EMA 快慢線、MACD、布林…）</label>
+          <div id="s-psearch-note" class="note warn" hidden>已開啟：每個指標會再試 3～4 組常用參數（例如 RSI 7／14／21、EMA 9/21、20/50、50/200、MACD 12/26/9、8/17/9、5/35/5）。候選數上限不變，但「可挑的組合」變多，<b>碰巧貼合過去的機會也更大</b>——請特別留意樣本外與「參數敏感度」。</div>
         </details>
         <details class="adv" id="s-rules-adv">
           <summary>進階：部位規則（資金池、同時持倉數、風險比例）</summary>
@@ -245,6 +247,7 @@
         </div>
         <div class="field">
           <div class="label">進場條件 <span class="muted">（預設全部成立才進場＝<span data-term="cond_logic">且</span>；也可以設成「或」群組、或勾「非」）</span></div>
+          <div class="muted small" style="margin-bottom:6px">每個條件的<span data-term="indicator_params">指標參數</span>（週期、門檻、倍數…）都能直接輸入數字，也可以點輸入框挑建議值。</div>
           <div id="m-entry"></div>
           <button type="button" class="btn small" id="m-add-entry">＋ 新增條件</button>
           <div id="m-summary" class="note info"></div>

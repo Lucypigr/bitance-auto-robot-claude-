@@ -2,7 +2,7 @@
 // 防過度擬合：候選評分與冠軍選擇「只」使用訓練期(前 70%)結果；
 // 樣本外(後 30%)只在冠軍確定後才計算，用來驗證，絕不回頭影響選擇。
 import { makeRng, shuffleInPlace, lowerBound } from './util.js';
-import { specKey, describeEntry, CONDITIONS } from './conditions.js';
+import { specKey, describeEntry, CONDITIONS, PARAM_GRID } from './conditions.js';
 import { runStrategy } from './portfolio.js';
 import { stabilityScore } from './metrics.js';
 import { splitRanges } from './dataset.js';
@@ -32,6 +32,7 @@ export const SEARCH_DEFAULTS = {
   cur: 'USDT', // 金額單位（台股為 TWD）
   posUsdt: 0, // 每筆固定投入的保證金（USDT），0＝用資金比例
   pool: null, // 自訂指標池（條件 id 清單）；null = DEFAULT_POOL
+  paramSearch: 'fixed', // fixed＝指標參數固定（RSI 14、EMA50/200、MACD 12/26/9…）；grid＝同時搜尋指標參數（見 PARAM_GRID）
 };
 
 const sp = (id, tf, params = {}, within = 1) => ({ id, tf, params, within });
@@ -42,6 +43,19 @@ export const DEFAULT_POOL = [
   'pat_hammer', 'pat_inverted_hammer', 'pat_hanging_man', 'pat_shooting_star', 'pat_bullish_engulfing', 'pat_bearish_engulfing',
   'pat_doji', 'pat_morning_star', 'pat_evening_star',
 ];
+
+/** 某個條件要試的參數組合：固定模式＝舊行為；grid 模式＝再與該家族的 PARAM_GRID 交叉（網格的值覆蓋同名參數） */
+function paramSets(id, def, cfg) {
+  let base;
+  if (id === 'rsi_overbought') base = cfg.rsiOverbought.map((level) => ({ level }));
+  else if (id === 'rsi_oversold') base = cfg.rsiOversold.map((level) => ({ level }));
+  else if (id === 'ema_golden' || id === 'ema_death') base = [{ fast: 50, slow: 200 }];
+  else base = [{}];
+  if (cfg.paramSearch !== 'grid' || !PARAM_GRID[def.family]) return base;
+  const out = [];
+  for (const b of base) for (const g of PARAM_GRID[def.family]) out.push({ ...b, ...g });
+  return out;
+}
 
 /**
  * 建立某方向可用的「條件原子」，依 (指標家族, 週期) 分成槽位，同槽位不會同時出現。
@@ -63,11 +77,8 @@ export function buildAtomSlots(dir, tfs, cfg) {
       if (!def) continue;
       if (!cfg.allowOpposite && def.side !== 'neutral' && def.side !== want) continue;
       const family = def.pattern ? 'pattern' : def.family;
-      if (id === 'rsi_overbought') for (const lv of cfg.rsiOverbought) add(family, tf, sp(id, tf, { level: lv }));
-      else if (id === 'rsi_oversold') for (const lv of cfg.rsiOversold) add(family, tf, sp(id, tf, { level: lv }));
-      else if (id === 'ema_golden' || id === 'ema_death') add(family, tf, sp(id, tf, { fast: 50, slow: 200 }, 3));
-      else if (id === 'macd_golden' || id === 'macd_death') add(family, tf, sp(id, tf, {}, 2));
-      else add(family, tf, sp(id, tf, {}, def.kind === 'event' && !def.pattern ? 2 : 1));
+      const within = id.startsWith('ema_') && def.family === 'ema' ? 3 : id.startsWith('macd_') && def.family === 'macd' ? 2 : def.kind === 'event' && !def.pattern ? 2 : 1;
+      for (const params of paramSets(id, def, cfg)) add(family, tf, sp(id, tf, params, within));
     }
   }
   return [...slots.entries()].map(([key, specs]) => ({ key, specs }));

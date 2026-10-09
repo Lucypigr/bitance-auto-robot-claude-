@@ -472,3 +472,44 @@ test('走動式驗證可取消', async ({ page }) => {
   await expect(page.locator('#run-error')).toContainText('已取消', { timeout: 20000 });
   await expect(page.locator('#btn-wf')).toBeEnabled();
 });
+
+test('手動：條件參數可輸入任意數字、不合理時提示並擋下回測、修正後可回測', async ({ page }) => {
+  await page.goto('/index.html');
+  await page.locator('#tab-manual').click();
+  await page.selectOption('#m-template', 'golden'); // EMA 20/50 黃金交叉
+  const row = page.locator('#m-entry .cond').first();
+  const fast = row.locator('input.c-param[data-k="fast"]');
+  const slow = row.locator('input.c-param[data-k="slow"]');
+  await expect(fast).toHaveValue('20');
+  await expect(slow).toHaveValue('50');
+  // 快線大於慢線：即時提示，按回測會被擋下
+  await fast.fill('80'); await fast.blur();
+  await expect(row.locator('.cond-err')).toContainText('快線');
+  await page.selectOption('#days', '90');
+  await page.locator('#btn-manual').click();
+  await expect(page.locator('#run-error')).toContainText('快線');
+  // 改成合理值：說明文字更新，且輸入框沒有被重畫（仍可繼續輸入）
+  await fast.fill('13'); await fast.blur();
+  await expect(row.locator('.cond-err')).toHaveCount(0);
+  await expect(row.locator('.cond-text')).toContainText('EMA13');
+  await expect(fast).toHaveValue('13');
+  await page.locator('#btn-manual').click();
+  await expect(page.getByTestId('compare')).toBeVisible({ timeout: 60000 });
+  await expect(page.getByTestId('strategy-desc')).toContainText('EMA13');
+});
+
+test('自動搜尋：開啟「同時搜尋指標參數」會顯示提醒、列入進階提醒；可一鍵恢復', async ({ page }) => {
+  await page.goto('/index.html');
+  await page.locator('[data-preset="3"]').click();
+  await page.locator('#pane-search details.adv').first().locator('summary').click();
+  await page.locator('#s-psearch').check();
+  await expect(page.locator('#s-psearch-note')).toBeVisible();
+  await expect(page.getByTestId('adv-note')).toContainText('同時搜尋指標參數');
+  await page.selectOption('#days', '90'); await page.selectOption('#s-budget', '60'); await page.fill('#s-min', '3');
+  await page.locator('#btn-search').click();
+  await expect(page.getByTestId('champ-netReturn')).toBeVisible({ timeout: 90000 });
+  await expect(page.locator('#r-title')).toBeVisible();
+  await page.locator('#adv-reset').click();
+  await expect(page.locator('#s-psearch')).not.toBeChecked();
+  await expect(page.locator('#s-psearch-note')).toBeHidden();
+});
