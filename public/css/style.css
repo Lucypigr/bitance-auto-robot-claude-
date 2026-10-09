@@ -154,7 +154,7 @@ details.adv[open] summary { margin-bottom: 10px; }
 .ibtn { display: inline-grid; place-items: center; width: 18px; height: 18px; margin-left: 3px; padding: 0; border: 0; background: transparent; color: var(--accent); font-size: 14px; line-height: 1; cursor: help; vertical-align: baseline; border-radius: 50%; }
 .ibtn:hover, .ibtn:focus-visible { background: var(--info-bg); }
 #info-pop {
-  position: absolute; z-index: 1000; background: var(--panel); color: var(--text); border: 1px solid var(--accent);
+  position: absolute; z-index: 1100; background: var(--panel); color: var(--text); border: 1px solid var(--accent);
   border-radius: 10px; padding: 12px 14px; box-shadow: 0 8px 28px rgba(0, 0, 0, .28); font-size: 13.5px; line-height: 1.55;
 }
 #info-pop .pop-title { font-weight: 700; margin-bottom: 4px; font-size: 14.5px; }
@@ -272,3 +272,33 @@ table.sens td { min-width: 46px; font-size: 12px; }
 table.sens td.base { outline: 2px solid var(--accent); outline-offset: -2px; font-weight: 700; }
 table.sens th { font-size: 12px; white-space: nowrap; }
 table.sens th.txt { text-align: left; min-width: 120px; white-space: normal; }
+
+/* ---- 新手篇 ---- */
+.tut-new { border-color: var(--accent); animation: tutPulse 2.2s ease-in-out 3; }
+@keyframes tutPulse { 0%, 100% { box-shadow: 0 0 0 0 transparent; } 50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 35%, transparent); } }
+.tut-overlay { position: fixed; inset: 0; z-index: 1000; background: rgba(8, 12, 22, .55); display: flex; align-items: center; justify-content: center; padding: 12px; }
+.tut-overlay[hidden] { display: none; }
+body.tut-open { overflow: hidden; }
+.tut-panel { background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--shadow); width: min(760px, 100%); max-height: min(88vh, 760px); display: flex; flex-direction: column; }
+.tut-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 14px 16px 6px; }
+.tut-head h2 { margin: 0; font-size: 18px; }
+.tut-dots { display: flex; gap: 6px; padding: 4px 16px 8px; }
+.tut-dot { width: 26px; height: 6px; border-radius: 3px; border: 0; background: var(--border); cursor: pointer; padding: 0; min-height: 0; }
+.tut-dot.on { background: var(--accent); }
+.tut-body { padding: 4px 16px 12px; overflow-y: auto; flex: 1; line-height: 1.7; }
+.tut-body h3 { margin: 6px 0 8px; font-size: 17px; }
+.tut-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 16px 14px; border-top: 1px solid var(--border); }
+.tut-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 10px 0; }
+.tut-box { border: 1px solid var(--border); background: var(--panel-2); border-radius: 10px; padding: 8px 12px; }
+.tut-box h4 { margin: 2px 0 4px; font-size: 14px; }
+.tut-box ul, .tut-list { margin: 0; padding-left: 18px; }
+.tut-list li { margin: 6px 0; }
+.tut-box.good { border-left: 4px solid var(--up); }
+.tut-box.bad { border-left: 4px solid var(--down); }
+.tut-steps { padding-left: 22px; margin: 8px 0; }
+.tut-steps li { margin: 8px 0; }
+.tut-tip { background: var(--panel-2); border-left: 4px solid var(--accent); padding: 8px 12px; border-radius: 6px; margin: 12px 0; }
+.tut-actions { margin: 10px 0 4px; }
+.tut-tbl td.txt, .tut-tbl th.txt { text-align: left; white-space: normal; min-width: 0; }
+.tut-tbl td:first-child { white-space: nowrap; }
+@media (max-width: 600px) { .tut-cols { grid-template-columns: 1fr; } .tut-panel { max-height: 94vh; } .tut-head h2 { font-size: 16px; } }
