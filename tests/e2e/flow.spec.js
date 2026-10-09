@@ -541,6 +541,7 @@ test('儲存／匯出／我的回測：存 2 筆、並排比較（含設定不�
   await expect(page.locator('#lib-count')).toHaveText('1');
   // 第二筆：換範本、手續費不同
   await page.selectOption('#m-template', 'oversold');
+  await page.locator('#feePct').evaluate((el) => { el.closest('details').open = true; });
   await page.fill('#feePct', '0.1');
   await page.locator('#btn-manual').click();
   await expect(page.getByTestId('compare')).toBeVisible({ timeout: 60000 });
