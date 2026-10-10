@@ -120,6 +120,16 @@ function regimeIll(mode) {
   const label = mode === 'range' ? '震盪：來回、原地打轉' : mode === 'down' ? '單邊下跌' : mode === 'up' ? '單邊上漲' : '單邊行情';
   return svg(`${candles(fromSeries(price, 0.035), R1)}<text class="tx" x="14" y="12">${label}</text>`);
 }
+function fibIll(up) {
+  // 上升波段：低→高，再回檔到 61.8%；下降波段上下相反
+  const leg = seq(10, (t) => 0.12 + 0.76 * t);
+  const back = seq(8, (t) => 0.88 - 0.47 * t);
+  let price = [...leg, ...back];
+  if (!up) price = price.map((v) => 1 - v);
+  const y = (lvl) => (up ? 0.88 - 0.76 * lvl : 0.12 + 0.76 * lvl);
+  const lines = [0.382, 0.5, 0.618].map((lv) => `${hline(R1, y(lv))}<text class="tx" x="${R1.x1 - 26}" y="${f(Y(R1, y(lv)) - 2)}">${(lv * 100).toFixed(lv === 0.5 ? 0 : 1)}%</text>`).join('');
+  return svg(`${candles(fromSeries(price, 0.03), R1)}${lines}${mark(R1, price.length - 1, price.length, price[price.length - 1])}`);
+}
 function atrIll(low = false) {
   if (low) return svg(`${candles(Array.from({ length: 16 }, (_, i) => { const b = 0.5 + 0.02 * Math.sin(i * 2); return [b, b + 0.04, b - 0.04, b + 0.012 * (i % 2 ? 1 : -1)]; }), R1)}<text class="tx" x="14" y="12">波動小：K 線都很短</text>`);
   const list = [...Array.from({ length: 8 }, (_, i) => { const b = 0.5 + 0.02 * Math.sin(i * 2); return [b, b + 0.04, b - 0.04, b + 0.012]; }),
@@ -230,6 +240,8 @@ const CAP = {
   donchian_break_up: '收盤價突破前 N 根的最高價（虛線）',
   donchian_break_down: '收盤價跌破前 N 根的最低價（虛線）',
   volume_spike: '某一根的成交量（下方長條）遠高於平常＝爆量',
+  fib_pullback: '價格由低點漲到高點（上升波段）後回檔，落在斐波那契回撤位（虛線，如 38.2%、50%、61.8%）附近＝可能的支撐',
+  fib_bounce: '價格由高點跌到低點（下降波段）後反彈，落在斐波那契回撤位（虛線）附近＝可能的壓力',
   regime_trend: '價格沿著一個方向走了一大段、很少回頭＝單邊行情（效率比率高）',
   regime_up: '價格一路墊高、很少回檔＝單邊上漲',
   regime_down: '價格一路走低、很少反彈＝單邊下跌',
@@ -264,13 +276,14 @@ const BUILDERS = {
   mfi_oversold: () => oscillator({ up: false, hi: 0.8, lo: 0.2, label: '20', valsFn: (t) => 0.7 - 0.62 * Math.min(1, t * 1.3), priceFn: (t) => 0.85 - 0.6 * t }),
   donchian_break_up: () => donchianIll(true), donchian_break_down: () => donchianIll(false),
   volume_spike: volumeIll,
+  fib_pullback: () => fibIll(true), fib_bounce: () => fibIll(false),
   regime_trend: () => regimeIll('trend'), regime_up: () => regimeIll('up'), regime_down: () => regimeIll('down'), regime_range: () => regimeIll('range'),
   ...PATTERNS,
 };
 // 沒有專屬圖的說明名詞，借用相近的圖
 const ALIAS = { rsi: 'rsi_overbought', ema: 'ema_golden', macd: 'macd_golden', bollinger_upper: 'bb_above_upper', bollinger_lower: 'bb_below_lower',
   adx: 'adx_strong', atr: 'atr_high', kd: 'kd_golden', supertrend: 'supertrend_flip_up', keltner: 'keltner_above', vwap: 'vwap_above', obv: 'obv_above',
-  cci: 'cci_overbought', mfi: 'mfi_overbought', donchian: 'donchian_break_up', volume: 'volume_spike', regime: 'regime_trend', efficiency_ratio: 'regime_range' };
+  cci: 'cci_overbought', mfi: 'mfi_overbought', donchian: 'donchian_break_up', volume: 'volume_spike', regime: 'regime_trend', efficiency_ratio: 'regime_range', fibonacci: 'fib_pullback' };
 
 const cache = new Map();
 /** key 可以是條件 id（如 pat_hammer）或說明名詞（如 rsi） */

@@ -767,3 +767,21 @@ test('市場研究：行情分析（目前行情與占比）、價格行為掃�
   await expect(page.getByTestId('regime-tab').getByTestId('regime-trades')).toBeVisible();
   await expect(page.getByTestId('regime-tab')).toContainText('進場時的行情');
 });
+
+test('斐波那契：可在手動策略選「上升波段回檔到斐波那契位」、調整比例與轉折參數並回測', async ({ page }) => {
+  await page.goto('/index.html');
+  await page.locator('#tab-manual').click();
+  await page.selectOption('#m-template', 'oversold');
+  const row = page.locator('#m-entry .cond').first();
+  await row.locator('.c-id').selectOption('fib_pullback');
+  await expect(row.locator('input.c-param')).toHaveCount(4);
+  await expect(row.locator('.cond-text')).toContainText('斐波那契');
+  await expect(row.locator('.cond-text')).toContainText('61.8%');
+  await row.locator('input.c-param[data-k="level"]').fill('0.5');
+  await row.locator('input.c-param[data-k="level"]').blur();
+  await expect(row.locator('.cond-text')).toContainText('50%');
+  await page.selectOption('#days', '90');
+  await page.locator('#btn-manual').click();
+  await expect(page.getByTestId('compare')).toBeVisible({ timeout: 60000 });
+  await expect(page.getByTestId('strategy-desc')).toContainText('斐波那契');
+});

@@ -35,6 +35,7 @@ export class IndicatorBundle {
   cci(n) { return this.memo(`cci${n}`, () => I.cci(this.s.h, this.s.l, this.s.c, n)); }
   mfi(n) { return this.memo(`mfi${n}`, () => I.mfi(this.s.h, this.s.l, this.s.c, this.s.v, n)); }
   don(n) { return this.memo(`don${n}`, () => I.donchian(this.s.h, this.s.l, n)); }
+  fib(n, minPct) { return this.memo(`fib${n},${minPct}`, () => I.fibRatios(this.s.h, this.s.l, this.s.c, n, minPct)); }
   er(n) { return this.memo(`er${n}`, () => I.efficiencyRatio(this.s.c, n)); }
   volAvg(n) { return this.memo(`vavg${n}`, () => I.prevAvg(this.s.v, n)); }
   pattern(name) { return this.memo(`pat${name}`, () => PATTERNS[name](this.s.o, this.s.h, this.s.l, this.s.c)); }
@@ -91,28 +92,28 @@ export const CONDITIONS = {
   ema_golden: {
     group: '均線 EMA', label: 'EMA 黃金交叉', term: 'ema_golden', side: 'bull', kind: 'event', family: 'ema',
     params: { fast: 50, slow: 200 },
-    fields: [fld('fast', '快線', [9, 12, 20, 50], { min: 2, max: 400 }), fld('slow', '慢線', [21, 26, 50, 100, 200], { min: 3, max: 500 })],
+    fields: [fld('fast', '快線', [8, 9, 12, 13, 20, 21, 34, 50], { min: 2, max: 400 }), fld('slow', '慢線', [21, 26, 34, 50, 55, 89, 100, 144, 200], { min: 3, max: 500 })],
     text: (p) => `EMA${p.fast} 向上穿越 EMA${p.slow}（黃金交叉）`,
     eval: (b, p) => crossUp(b.ema(p.fast), b.ema(p.slow)),
   },
   ema_death: {
     group: '均線 EMA', label: 'EMA 死亡交叉', term: 'ema_death', side: 'bear', kind: 'event', family: 'ema',
     params: { fast: 50, slow: 200 },
-    fields: [fld('fast', '快線', [9, 12, 20, 50], { min: 2, max: 400 }), fld('slow', '慢線', [21, 26, 50, 100, 200], { min: 3, max: 500 })],
+    fields: [fld('fast', '快線', [8, 9, 12, 13, 20, 21, 34, 50], { min: 2, max: 400 }), fld('slow', '慢線', [21, 26, 34, 50, 55, 89, 100, 144, 200], { min: 3, max: 500 })],
     text: (p) => `EMA${p.fast} 向下穿越 EMA${p.slow}（死亡交叉）`,
     eval: (b, p) => crossDown(b.ema(p.fast), b.ema(p.slow)),
   },
   price_above_ema: {
     group: '均線 EMA', label: '收盤價在 EMA 之上', term: 'ema', side: 'bull', kind: 'state', family: 'emaside',
     params: { period: 200 },
-    fields: [PERIOD([20, 50, 100, 200], '均線週期')],
+    fields: [PERIOD([13, 20, 21, 34, 50, 55, 89, 100, 144, 200], '均線週期')],
     text: (p) => `收盤價 > EMA${p.period}`,
     eval: (b, p) => stateGT2(b.s.c, b.ema(p.period)),
   },
   price_below_ema: {
     group: '均線 EMA', label: '收盤價在 EMA 之下', term: 'ema', side: 'bear', kind: 'state', family: 'emaside',
     params: { period: 200 },
-    fields: [PERIOD([20, 50, 100, 200], '均線週期')],
+    fields: [PERIOD([13, 20, 21, 34, 50, 55, 89, 100, 144, 200], '均線週期')],
     text: (p) => `收盤價 < EMA${p.period}`,
     eval: (b, p) => stateLT2(b.s.c, b.ema(p.period)),
   },
@@ -354,6 +355,28 @@ export const CONDITIONS = {
   },
 };
 
+// ---- 斐波那契回撤 ----
+// 常用的回撤比例 0.236、0.382、0.5、0.618、0.786 來自斐波那契數列的比值（0.618≈F(n)/F(n+1)、0.382≈F(n)/F(n+2)），0.5 是慣用的折半位。
+const FIB_FIELDS = [
+  fld('period', '轉折點左右根數', [3, 5, 8, 13, 21], { min: 2, max: 60 }),
+  fld('level', '回撤比例', [0.236, 0.382, 0.5, 0.618, 0.786], { min: 0.05, max: 0.95, int: false, step: 0.001 }),
+  fld('tol', '容許誤差（±）', [0.02, 0.03, 0.05, 0.08], { min: 0.005, max: 0.2, int: false, step: 0.005 }),
+  fld('minPct', '波段最小幅度（%）', [1, 2, 3, 5, 8], { min: 0.1, max: 100, int: false, step: 0.5 }),
+];
+const pctTxt = (x) => `${+(x * 100).toFixed(1)}%`;
+CONDITIONS.fib_pullback = {
+  group: '斐波那契回撤', label: '上升波段回檔到斐波那契位', term: 'fibonacci', side: 'bull', kind: 'state', family: 'fib',
+  params: { period: 5, level: 0.618, tol: 0.04, minPct: 3 }, fields: FIB_FIELDS,
+  text: (p) => `上升波段（轉折 ${p.period} 根確認）回檔到 ${pctTxt(p.level)}（±${pctTxt(p.tol)}）附近`,
+  eval: (b, p) => { const r = b.fib(p.period, p.minPct).up, o = new Uint8Array(r.length); for (let i = 0; i < r.length; i++) o[i] = Math.abs(r[i] - p.level) <= p.tol ? 1 : 0; return o; },
+};
+CONDITIONS.fib_bounce = {
+  group: '斐波那契回撤', label: '下降波段反彈到斐波那契位', term: 'fibonacci', side: 'bear', kind: 'state', family: 'fib',
+  params: { period: 5, level: 0.618, tol: 0.04, minPct: 3 }, fields: FIB_FIELDS,
+  text: (p) => `下降波段（轉折 ${p.period} 根確認）反彈到 ${pctTxt(p.level)}（±${pctTxt(p.tol)}）附近`,
+  eval: (b, p) => { const r = b.fib(p.period, p.minPct).down, o = new Uint8Array(r.length); for (let i = 0; i < r.length; i++) o[i] = Math.abs(r[i] - p.level) <= p.tol ? 1 : 0; return o; },
+};
+
 // ---- 行情狀態：單邊／震盪（效率比率 ER）----
 // 預設門檻依幣安 BTC／ETH／SOL 的 1h／4h／1d 實際分布挑選：ER(20) 的中位數約 0.2、75 百分位約 0.35、25 百分位約 0.1。
 const ER_FIELDS = [PERIOD([10, 20, 40], 'ER 週期'), fld('level', 'ER 門檻', [0.1, 0.15, 0.2, 0.3, 0.35, 0.4, 0.5], { min: 0.01, max: 0.99, int: false, step: 0.01 })];
@@ -425,6 +448,7 @@ export const PARAM_GRID = {
   stflip: [{ period: 7, mult: 3 }, { period: 10, mult: 3 }, { period: 14, mult: 2 }],
   kc: [{ period: 20, atr: 10, mult: 1.5 }, { period: 20, atr: 10, mult: 2 }, { period: 20, atr: 10, mult: 2.5 }],
   obv: [{ period: 10 }, { period: 20 }, { period: 50 }],
+  fib: [{ level: 0.382 }, { level: 0.5 }, { level: 0.618 }],
   cci: [{ period: 14 }, { period: 20 }, { period: 30 }],
   mfi: [{ period: 10 }, { period: 14 }, { period: 21 }],
   don: [{ period: 10 }, { period: 20 }, { period: 55 }],
