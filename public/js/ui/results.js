@@ -8,7 +8,7 @@ import { CONDITIONS, describeSpec, specKey } from '../core/conditions.js';
 import { risingEdges } from '../core/signals.js';
 import { symbolBreakdown } from '../core/breakdown.js';
 import { robustVerdict, priceRet } from '../core/robust.js';
-import { REGIME_LABEL, REGIME_KEYS } from '../core/regime.js';
+import { REGIME_LABEL, REGIME_KEYS, multiTfReading } from '../core/regime.js';
 import { clusterRows } from '../core/edgescan.js';
 
 const REASON = { tp: '停利', sl: '停損', trail: '移動停損', be: '保本出場', reverse: '反手', liq: '清算', signal: '出場訊號', time: '持倉期滿', end: '區間結束' };
@@ -557,7 +557,20 @@ export function renderRobust(el, r, { searched = false, seed = 0, trades = [] } 
 const REG_CLS = { 1: 'pos', 2: 'neg', 3: 'muted', 4: 'muted', 0: 'muted' };
 const regBadge = (k) => `<span class="badge ${k === 1 ? 'up' : k === 2 ? 'down' : 'neutral'}">${REGIME_LABEL[k]}</span>`;
 
-export function renderRegimeOverview(el, ov, params, ds) {
+function mtfTable(multi, params, ds) {
+  const tfs = multi[0].tfs.map((t) => t.tf);
+  const MS = { '5m': 300000, '15m': 900000, '1h': 3600000, '4h': 14400000, '1d': 86400000 };
+  const span = (tf) => { const h = (MS[tf] * params.period) / 3600000; return h >= 48 ? `${(h / 24).toFixed(h % 24 ? 1 : 0)} 天` : `${+h.toFixed(1)} 小時`; };
+  const head = tfs.map((tf) => `<th>${TF_LABEL[tf] || tf}<div class="muted small">${params.period} 根 ≈ ${span(tf)}</div></th>`).join('');
+  const rows = multi.map((r) => `<tr><td>${esc(symLabel(ds, r.symbol))}</td>${r.tfs.map((t) => `<td>${t.current ? `${regBadge(t.current)}<div class="muted small">ER ${fmtNum(t.er, 2)}</div>` : '<span class="muted">資料不足</span>'}</td>`).join('')}</tr>`).join('');
+  const reads = multi.map((r) => { const t = multiTfReading(r); return t ? `<li><b>${esc(symLabel(ds, r.symbol))}</b>：${esc(t)}</li>` : ''; }).join('');
+  return `<h3 style="margin:14px 0 6px">多週期並排（${term('regime', '大週期單邊、小週期整理')}常同時存在）</h3>
+    <div class="tbl-wrap"><table class="tbl" data-testid="regime-mtf"><thead><tr><th class="txt">標的</th>${head}</tr></thead><tbody>${rows}</tbody></table></div>
+    <ul class="tut-list" data-testid="regime-mtf-read">${reads}</ul>
+    <div class="muted small">每個週期各自用「最近 ${params.period} 根已收盤 K 線」判斷，所以「${params.period} 根」代表的實際時間長度不同（見表頭）。最小的週期是步驟 1 的執行週期；想看更小週期，把執行週期改成 15 分或 5 分再按一次。</div>`;
+}
+
+export function renderRegimeOverview(el, ov, params, ds, multi = null) {
   const trendTxt = `ER(${params.period}) ≥ ${params.trend}＝單邊（再依 ${params.period} 根來的漲跌分成上漲／下跌）；ER ≤ ${params.range}＝震盪；之間＝過渡`;
   const rows = ov.map((o) => `<tr><td>${esc(symLabel(ds, o.symbol))}</td><td>${regBadge(o.current)}</td><td>${Number.isFinite(o.er) ? fmtNum(o.er, 2) : '—'}</td>${REGIME_KEYS.map((k) => `<td>${fmtPct(o.share[k], 0)}</td>`).join('')}</tr>`).join('');
   const now = ov.map((o) => `${symLabel(ds, o.symbol)}：${REGIME_LABEL[o.current]}`).join('；');
@@ -565,6 +578,7 @@ export function renderRegimeOverview(el, ov, params, ds) {
     <div class="muted small">${esc(trendTxt)}。分類只用已收盤的 K 線，沒有偷看未來。</div>
     <div class="note info" data-testid="regime-now"><b>目前（最新一根已收盤 K 線）：</b>${esc(now)}</div>
     <div class="tbl-wrap"><table class="tbl" data-testid="regime-table"><thead><tr><th class="txt">標的</th><th>目前行情</th><th>目前 ER</th>${REGIME_KEYS.map((k) => `<th>${REGIME_LABEL[k]}占比</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table></div>
+    ${multi ? mtfTable(multi, params, ds) : ''}
     <div class="muted small">占比是這段載入資料中各種行情所佔的時間比例。常見的說法是「震盪盤適合均值回歸（超買超賣反轉）、單邊盤適合順勢（突破、均線）」，但<b>這只是說法</b>——用右側「價格行為掃描」才能用資料檢驗它在你的標的上是否成立。</div>`;
 }
 

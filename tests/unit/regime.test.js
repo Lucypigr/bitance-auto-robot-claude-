@@ -77,3 +77,25 @@ test('交易依「訊號當下」的行情分組；損益、勝率、PF 正確',
   assert.equal(by[REGIME.RANGE].n, 2); near(by[REGIME.RANGE].pnl, -40); assert.equal(by[REGIME.RANGE].profitFactor, 0);
   assert.equal(by[REGIME.NONE].n, 1);
 });
+
+import { regimeMultiTf, multiTfReading, classifyCloses } from '../../public/js/core/regime.js';
+test('多週期並排：大週期單邊、小週期震盪可以同時成立；資料不足的週期標示為 0；與單週期結果一致', () => {
+  const small = [...Array.from({ length: 40 }, (_, i) => 100 + i * 0.1), ...Array.from({ length: 40 }, (_, i) => 104 + (i % 2 ? 0.2 : -0.2))]; // 1h：後段震盪
+  const { ds, S } = mkDs(small.map((c) => [c, c, c, c]));
+  const big = Float64Array.from(Array.from({ length: 60 }, (_, i) => 100 + i * 2)); // 4h：一路上漲
+  S.tf = { '4h': { t: new Float64Array(60), o: big, h: big, l: big, c: big, v: big }, '1d': { t: new Float64Array(5), o: big.slice(0, 5), h: big.slice(0, 5), l: big.slice(0, 5), c: big.slice(0, 5), v: big.slice(0, 5) } };
+  const [row] = regimeMultiTf(ds, REGIME_DEFAULTS, ['1h', '4h', '1d']);
+  const by = Object.fromEntries(row.tfs.map((t) => [t.tf, t]));
+  assert.equal(by['1h'].current, REGIME.RANGE);
+  assert.equal(by['4h'].current, REGIME.UP);
+  assert.equal(by['1d'].current, 0, '日線只有 5 根，資料不足');
+  assert.ok(Number.isNaN(by['1d'].er));
+  const one = regimeOverview(ds, REGIME_DEFAULTS)[0];
+  assert.equal(by['1h'].current, one.current);
+  near(Object.values(by['4h'].share).reduce((a, b) => a + b, 0), 1);
+  assert.match(multiTfReading({ tfs: [by['1h'], by['4h'], by['1d']] }), /大週期單邊.*小週期在整理/);
+  assert.match(multiTfReading({ tfs: [{ tf: '1h', current: REGIME.UP }, { tf: '4h', current: REGIME.UP }] }), /各週期一致：單邊上漲/);
+  assert.match(multiTfReading({ tfs: [{ tf: '1h', current: REGIME.DOWN }, { tf: '4h', current: REGIME.UP }] }), /逆著大方向/);
+  assert.equal(multiTfReading({ tfs: [{ tf: '1h', current: REGIME.UP }] }), '');
+  assert.equal(classifyCloses(Float64Array.from({ length: 5 }, (_, i) => i), REGIME_DEFAULTS).regime.every((x) => x === 0), true);
+});

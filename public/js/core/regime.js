@@ -15,23 +15,64 @@ export function validateRegimeParams(p) {
   if (!(range < trend)) throw new Error('「震盪」的 ER 門檻必須小於「單邊」的 ER 門檻');
 }
 
-/** 一檔標的在執行週期上的行情分類（陣列長度＝ds.n，資料範圍外為 0） */
-export function regimeSeries(ds, si, params = {}) {
+/** 一串收盤價的行情分類（第 i 根只用 i 以前的資料；資料不足為 0） */
+export function classifyCloses(c, params = {}) {
   const { period, trend, range } = { ...REGIME_DEFAULTS, ...params };
-  const S = ds.symbols[si];
-  const c = S.c.subarray(S.first, S.last + 1);
   const er = efficiencyRatio(c, period);
-  const out = new Uint8Array(ds.n);
+  const out = new Uint8Array(c.length);
   for (let i = 0; i < er.length; i++) {
     const e = er[i];
     if (Number.isNaN(e)) continue;
-    let r;
-    if (e >= trend) r = c[i] > c[i - period] ? REGIME.UP : c[i] < c[i - period] ? REGIME.DOWN : REGIME.MID;
-    else if (e <= range) r = REGIME.RANGE;
-    else r = REGIME.MID;
-    out[S.first + i] = r;
+    if (e >= trend) out[i] = c[i] > c[i - period] ? REGIME.UP : c[i] < c[i - period] ? REGIME.DOWN : REGIME.MID;
+    else if (e <= range) out[i] = REGIME.RANGE;
+    else out[i] = REGIME.MID;
   }
+  return { regime: out, er };
+}
+
+/** 一檔標的在執行週期上的行情分類（陣列長度＝ds.n，資料範圍外為 0） */
+export function regimeSeries(ds, si, params = {}) {
+  const S = ds.symbols[si];
+  const { regime, er } = classifyCloses(S.c.subarray(S.first, S.last + 1), params);
+  const out = new Uint8Array(ds.n);
+  out.set(regime, S.first);
   return { regime: out, er, first: S.first };
+}
+
+/**
+ * 多週期並排：每檔標的在各週期（執行週期與更大的週期）各自的目前行情。
+ * 大週期單邊、小週期震盪是很常見的組合，只看單一週期會得到互相矛盾的印象。
+ */
+export function regimeMultiTf(ds, params = {}, tfs = [ds.baseTf]) {
+  const { period } = { ...REGIME_DEFAULTS, ...params };
+  return ds.symbols.map((S) => ({
+    symbol: S.symbol, name: S.name || '',
+    tfs: tfs.map((tf) => {
+      const ser = tf === ds.baseTf ? { c: S.c.subarray(S.first, S.last + 1) } : S.tf && S.tf[tf];
+      if (!ser || !ser.c || ser.c.length <= period) return { tf, current: 0, er: NaN, bars: 0, share: { 1: 0, 2: 0, 3: 0, 4: 0 } };
+      const { regime, er } = classifyCloses(ser.c, params);
+      const counts = { 1: 0, 2: 0, 3: 0, 4: 0 };
+      let total = 0;
+      for (const r of regime) if (r) { counts[r]++; total++; }
+      const last = regime.length - 1;
+      return { tf, current: regime[last], er: er[last], bars: total, share: Object.fromEntries(REGIME_KEYS.map((k) => [k, total ? counts[k] / total : 0])) };
+    }),
+  }));
+}
+
+/** 白話：各週期的行情組合代表什麼（描述現狀，不是預測） */
+export function multiTfReading(row) {
+  const known = row.tfs.filter((t) => t.current);
+  if (known.length < 2) return '';
+  const hi = known[known.length - 1];
+  const lo = known[0];
+  const L = (t) => `${t.tf} ${REGIME_LABEL[t.current]}`;
+  const trend = (r) => r === REGIME.UP || r === REGIME.DOWN;
+  if (trend(hi.current) && lo.current === REGIME.RANGE) return `大週期單邊（${L(hi)}）、小週期在整理（${L(lo)}）：常見於單邊走勢中的整理，可能續勢也可能轉折，這裡只描述現況。`;
+  if (hi.current === REGIME.RANGE && trend(lo.current)) return `大週期在震盪（${L(hi)}）、小週期有短線單邊（${L(lo)}）：區間內的短線波動。`;
+  if (known.every((t) => t.current === known[0].current)) return `各週期一致：${REGIME_LABEL[known[0].current]}。`;
+  if (trend(hi.current) && trend(lo.current) && hi.current !== lo.current) return `大週期${REGIME_LABEL[hi.current]}、小週期${REGIME_LABEL[lo.current]}：小週期正在逆著大方向走（回檔或反彈）。`;
+  return `各週期看法不一：${known.map(L).join('、')}。`;
 }
 
 /** 每檔標的：最新一根已收盤 K 線的行情、ER，以及在區間內各行情所佔比例 */
