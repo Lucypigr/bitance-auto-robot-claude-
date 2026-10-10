@@ -724,3 +724,46 @@ test('可信度檢定：手動回測有 p 值表、分布圖、白話結論、MA
   await page.locator('[data-ctab="robust"]').click();
   await expect(page.getByTestId('robust').getByTestId('robust-multiple')).toContainText('候選裡挑出來', { timeout: 20000 });
 });
+
+test('市場研究：行情分析（目前行情與占比）、價格行為掃描（誠實的摘要、表格、CSV）、把行為建立成手動策略', async ({ page }) => {
+  const fs = await import('node:fs');
+  await page.goto('/index.html');
+  await page.locator('#tab-study').click();
+  await expect(page.locator('#pane-study')).toBeVisible();
+  await page.selectOption('#days', '90');
+  await page.locator('#btn-regime').click();
+  const box = page.getByTestId('study');
+  await expect(box.getByTestId('regime-table')).toBeVisible({ timeout: 60000 });
+  await expect(box.getByTestId('regime-now')).toContainText('目前');
+  await expect(box.getByTestId('regime-table').locator('tbody tr')).toHaveCount(2);
+  // 門檻不合理 → 明確錯誤
+  await page.fill('#st-range', '0.5');
+  await page.locator('#btn-regime').click();
+  await expect(page.locator('#run-error')).toContainText('小於');
+  await page.fill('#st-range', '0.12');
+  await page.locator('#st-h input[value="48"]').uncheck();
+  await page.fill('#st-min', '8');
+  await page.locator('#btn-scan').click();
+  await expect(box.getByTestId('scan-summary')).toBeVisible({ timeout: 90000 });
+  await expect(box.getByTestId('scan-summary')).toContainText(/沒有找到|通過篩選|確認/);
+  await expect(box).toContainText('扣掉手續費');
+  await expect(box).toContainText('預期有約');
+  await box.locator('input[name="scan-filter"][value="all"]').check();
+  await expect(box.getByTestId('scan-table').locator('tbody tr').first()).toBeVisible();
+  const [dl] = await Promise.all([page.waitForEvent('download'), box.locator('[data-scan-csv]').click()]);
+  const csv = fs.readFileSync(await dl.path(), 'utf8');
+  expect(csv).toContain('訓練平均淨報酬');
+  // 建立策略 → 手動分頁，持有根數變成最長持倉
+  await box.locator('[data-scan-build]').first().click();
+  await expect(page.locator('#tab-manual')).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator('#m-entry .cond').first()).toBeVisible();
+  const mb = Number(await page.locator('#m-maxbars').inputValue());
+  expect(mb).toBeGreaterThan(0);
+  await expect(page.locator('#toast')).toContainText('已建立手動策略');
+  await page.locator('#btn-manual').click();
+  await expect(page.getByTestId('compare')).toBeVisible({ timeout: 60000 });
+  // 行情分析分頁：這個策略的交易在哪種行情賺賠
+  await page.locator('[data-ctab="regime"]').click();
+  await expect(page.getByTestId('regime-tab').getByTestId('regime-trades')).toBeVisible();
+  await expect(page.getByTestId('regime-tab')).toContainText('進場時的行情');
+});

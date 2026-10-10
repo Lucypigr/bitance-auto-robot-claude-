@@ -1,7 +1,7 @@
 import { initInfo, decorate, term, esc } from './info.js';
 import { BinanceClient, IdbStore, MemoryStore, loadMarketData, sortSymbols } from '../data/binance.js';
 import { FinMindClient, loadTwData, twseQuotes } from '../data/finmind.js';
-import { buildDataset, buildTwDataset } from '../core/dataset.js';
+import { buildDataset, buildTwDataset, splitRanges } from '../core/dataset.js';
 import { SignalEngine } from '../core/signals.js';
 import { normalizeSpec, describeSpec, conditionGroups, CONDITIONS, validateSpec } from '../core/conditions.js';
 import { describeStrategy, DEFAULT_POOL } from '../core/search.js';
@@ -12,10 +12,12 @@ import { TEMPLATES, defaultCondition, renderConditionList, bindConditionList, so
 import * as R from './results.js';
 import { diagnoseStrategy, diagnoseSearch } from '../core/diagnose.js';
 import { runRobustness, ROBUST_DEFAULTS } from '../core/robust.js';
+import { regimeOverview, tradesByRegime, validateRegimeParams, REGIME_DEFAULTS, REGIME_LABEL } from '../core/regime.js';
+import { scanEdges } from '../core/edgescan.js';
 import { fmtMoney, fmtPct } from './format.js';
 import { initTutorial } from './tutorial.js';
 import { createLibrary, downloadText, toast } from './library-ui.js';
-import { makeSnapshot, tradesRows, equityRows, boardRows, foldsRows, wfChainRows, toCsv, exportJson } from '../core/report.js';
+import { makeSnapshot, tradesRows, equityRows, boardRows, foldsRows, wfChainRows, scanRows, toCsv, exportJson } from '../core/report.js';
 
 const $ = (id) => document.getElementById(id);
 const MAX_SYMBOLS = 15;
@@ -717,7 +719,7 @@ async function cancelRun() {
 
 // ---------------- 結果顯示 ----------------
 function showResultShell() {
-  $('r-wf').hidden = true;
+  $('r-wf').hidden = true; $('r-study').hidden = true;
   $('result-empty').hidden = true;
   $('result-body').hidden = false;
 }
@@ -819,6 +821,7 @@ function buildTab(name) {
   const ds = state.data.ds;
   if (name === 'sens') { renderSens(); return; }
   if (name === 'robust') { renderRobust(); return; }
+  if (name === 'regime') { renderRegimeTab(); return; }
   if (name === 'trades') { renderTrades(); return; }
   if (name === 'monthly') { R.renderMonthly($('monthly'), res); return; }
   if (state.builtCharts[name]) return;
@@ -834,6 +837,109 @@ function buildTab(name) {
     R.buildDrawdownChart($('dd-chart'), res, ds, costs.capital);
   }
   void strategy;
+}
+
+// ---------------- 市場研究 ----------------
+function readRegimeParams() {
+  const p = { period: Math.floor(Number($('st-period').value)), trend: Number($('st-trend').value), range: Number($('st-range').value) };
+  validateRegimeParams(p);
+  return p;
+}
+function showStudyShell(title, sub) {
+  showResultShell();
+  state.view = null; state.searchResult = null; state.wf = null;
+  destroyAll();
+  for (const id of ['r-champions', 'r-verdict', 'r-compare', 'r-symbols', 'r-diag', 'r-actions']) $(id).hidden = true;
+  document.querySelector('.card.charts').hidden = true;
+  $('r-title').innerHTML = `<div><h2>${esc(title)}</h2><div class="muted small">${sub}</div></div>`;
+  $('r-study').hidden = false;
+}
+async function runRegimeStudy() {
+  showError('');
+  let params;
+  try { params = readRegimeParams(); } catch (e) { showError(e.message); return; }
+  state.abort = new AbortController();
+  setBusy(true, true);
+  try {
+    const { ds } = await ensureData(new Set([state.baseTf]));
+    const ov = regimeOverview(ds, params);
+    showStudyShell('行情分析', `${marketName()}　${ds.symbols.length} ${isTw() ? '檔' : '個幣種'}　執行週期 ${TF_LABEL[ds.baseTf]}`);
+    state.study = { params, ov };
+    R.renderRegimeOverview($('r-study'), ov, params, ds);
+    decorate($('r-study'));
+    $('r-study').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  } catch (e) {
+    if (e.kind !== 'abort') showError(e.message || String(e));
+    $('load-progress').hidden = true;
+  } finally { setBusy(false); }
+}
+async function runScan() {
+  showError('');
+  let params;
+  try { params = readRegimeParams(); } catch (e) { showError(e.message); return; }
+  const horizons = readChecks('st-h');
+  if (!horizons.length) { showError('持有期至少要勾選一個'); return; }
+  state.abort = new AbortController();
+  setBusy(true, true);
+  const prog = $('search-progress');
+  try {
+    const d = await ensureData(new Set([state.baseTf]));
+    const ds = d.ds;
+    const costs = readCosts();
+    const frac = readTrainFrac();
+    const ranges = splitRanges(ds, frac);
+    setProgress(prog, 0, 1, '掃描價格行為…');
+    const scan = await scanEdges(d.sig, costs, ranges, { horizons, byRegime: $('st-byregime').checked, minEvents: Math.max(5, Number($('st-min').value) || 30), regime: params }, {
+      progress: (p) => setProgress(prog, p.done, p.total, `掃描價格行為 ${p.done}／${p.total}`),
+      cancelled: () => state.abort.signal.aborted,
+      yield: () => new Promise((r) => setTimeout(r, 0)),
+    });
+    prog.hidden = true;
+    if (scan.cancelled) { showError('已取消掃描'); return; }
+    showStudyShell('價格行為掃描', `${costsNote(costs)}　${marketName()}　${ds.symbols.length} ${isTw() ? '檔' : '個幣種'}　執行週期 ${TF_LABEL[ds.baseTf]}　訓練 ${Math.round(frac * 100)}%／樣本外 ${100 - Math.round(frac * 100)}%`);
+    state.study = { params, scan, trainPct: Math.round(frac * 100), filter: 'auto', ov: regimeOverview(ds, params) };
+    renderStudyScan();
+    $('r-study').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  } catch (e) {
+    if (e.kind !== 'abort') showError(e.message || String(e));
+    prog.hidden = true; $('load-progress').hidden = true;
+  } finally { setBusy(false); }
+}
+function renderStudyScan() {
+  const s = state.study;
+  const ds = state.data.ds;
+  const el = $('r-study');
+  R.renderScan(el, s.scan, ds, { filter: s.filter, trainPct: s.trainPct, params: s.params });
+  el.insertAdjacentHTML('afterbegin', '<div id="scan-regime"></div>');
+  R.renderRegimeOverview($('scan-regime'), s.ov, s.params, ds);
+  $('scan-regime').insertAdjacentHTML('beforeend', '<hr style="border:0;border-top:1px solid var(--border);margin:14px 0">');
+  decorate(el);
+}
+function renderRegimeTab() {
+  const v = state.view;
+  const el = $('regime-tab');
+  if (!v) { el.innerHTML = '<div class="muted">請先執行一次回測。</div>'; return; }
+  let params;
+  try { params = readRegimeParams(); } catch { params = REGIME_DEFAULTS; }
+  const ds = state.data.ds;
+  const ov = regimeOverview(ds, params, v.res.ranges.full);
+  R.renderRegimeTab(el, tradesByRegime(v.res.train.trades, ds, params), tradesByRegime(v.res.holdout.trades, ds, params), ov, params, ds);
+  decorate(el);
+}
+/** 把掃描出的一種價格行為填進手動策略（持有 N 根後出場），之後可用完整回測再驗證 */
+function applyScanRow(key) {
+  const row = state.study && state.study.scan && state.study.scan.rows.find((r) => r.key === key);
+  if (!row) return;
+  const p = state.study.params;
+  const entry = [{ id: row.id, tf: state.baseTf, params: {}, within: 1 }];
+  const rid = { 1: 'regime_up', 2: 'regime_down', 3: 'regime_range' }[row.regime];
+  let note = '';
+  if (rid) entry.push({ id: rid, tf: state.baseTf, params: { period: p.period, level: rid === 'regime_range' ? p.range : p.trend }, within: 1 });
+  else if (row.regime === 4) note = '（「過渡」行情沒有對應的條件，已略過行情過濾）';
+  applyManualStrategy({ dir: row.dir > 0 ? 'long' : 'short', entry, exit: [], unit: 'pct', sl: 0, tp: 0, trail: 0, lev: 1, maxBars: row.h, entryMode: 'edge' });
+  document.querySelector('[data-tab="manual"]').click();
+  toast(`已建立手動策略：${row.label}、${row.dir > 0 ? '做多' : '做空'}、持有 ${row.h} 根${rid ? '、' + REGIME_LABEL[row.regime] + '時才進場' : ''}${note}。按「開始回測」用完整規則（含資金費率）驗證。`);
+  $('step2').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 function renderRobust(bump = 0) {
@@ -928,7 +1034,7 @@ function bind() {
   document.querySelectorAll('[data-tab]').forEach((b) => b.addEventListener('click', () => {
     state.tab = b.dataset.tab;
     document.querySelectorAll('#step2 > .tabs .tab').forEach((x) => { const on = x === b; x.classList.toggle('active', on); x.setAttribute('aria-selected', String(on)); });
-    $('pane-search').hidden = state.tab !== 'search'; $('pane-manual').hidden = state.tab !== 'manual';
+    $('pane-search').hidden = state.tab !== 'search'; $('pane-manual').hidden = state.tab !== 'manual'; $('pane-study').hidden = state.tab !== 'study';
   }));
 
   $('s-unit').addEventListener('change', () => {
@@ -953,6 +1059,19 @@ function bind() {
   $('btn-manual').addEventListener('click', runManual);
   $('btn-cancel').addEventListener('click', cancelRun);
   $('btn-demo').addEventListener('click', runDemo);
+  $('btn-regime').addEventListener('click', runRegimeStudy);
+  $('btn-scan').addEventListener('click', runScan);
+  checkboxGroup($('st-h'), [1, 4, 12, 24, 48], [1, 4, 12, 24, 48], 'st-h');
+  $('r-study').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-scan-build]');
+    if (b) { applyScanRow(b.dataset.scanBuild); return; }
+    if (e.target.closest('[data-scan-csv]') && state.study && state.study.scan) {
+      downloadText(`edge-scan-${state.market}-${todayStr()}.csv`, toCsv(scanRows(state.study.scan, REGIME_LABEL)), 'text/csv');
+    }
+  });
+  $('r-study').addEventListener('change', (e) => {
+    if (e.target.name === 'scan-filter' && state.study) { state.study.filter = e.target.value; renderStudyScan(); }
+  });
 
   // 手動策略
   $('m-template').innerHTML += TEMPLATES.map((t) => `<option value="${t.id}">${esc(t.name)}</option>`).join('');

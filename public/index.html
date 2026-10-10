@@ -156,6 +156,7 @@
       <div class="tabs" role="tablist">
         <button type="button" class="tab active" role="tab" id="tab-search" aria-selected="true" data-tab="search">🔎 自動搜尋最佳組合</button>
         <button type="button" class="tab" role="tab" id="tab-manual" aria-selected="false" data-tab="manual">🛠 手動設定策略</button>
+        <button type="button" class="tab" role="tab" id="tab-study" aria-selected="false" data-tab="study">🔬 市場研究</button>
       </div>
 
       <!-- 自動搜尋 -->
@@ -313,6 +314,30 @@
         </details>
         <button id="btn-manual" class="btn primary block" type="button">開始回測</button>
       </div>
+      <!-- 市場研究 -->
+      <div id="pane-study" class="pane" hidden>
+        <div class="note info">這裡回答兩個問題：<br>① <b>現在是單邊行情還是震盪？</b><br>② <b>市場有沒有「反覆出現、扣掉交易成本後仍賺錢」的價格行為？</b>（誠實的答案常常是「沒有」，這本身就是重要的資訊）</div>
+        <div class="field">
+          <div class="label"><span data-term="regime">行情判斷</span>（用<span data-term="efficiency_ratio">效率比率 ER</span>）</div>
+          <div class="grid2">
+            <div class="field"><label class="label" for="st-period">ER 週期（根）</label><input id="st-period" type="number" min="5" max="200" step="1" value="20"></div>
+            <div class="field"><label class="label" for="st-trend">單邊門檻（ER ≥）</label><input id="st-trend" type="number" min="0.05" max="0.95" step="0.01" value="0.35"></div>
+            <div class="field"><label class="label" for="st-range">震盪門檻（ER ≤）</label><input id="st-range" type="number" min="0.01" max="0.9" step="0.01" value="0.12"></div>
+          </div>
+          <div class="muted small">ER 越接近 1 越像一路走直線，越接近 0 越像來回打轉。預設門檻依幣安 BTC／ETH／SOL 的實際分布挑選（ER 的 75 百分位約 0.35、25 百分位約 0.10）。</div>
+        </div>
+        <button id="btn-regime" class="btn block" type="button">📊 分析目前行情</button>
+        <div class="field" style="margin-top:14px">
+          <div class="label"><span data-term="edge_scan">價格行為掃描</span>：持有期（根 K 線）</div>
+          <div class="checks" id="st-h"></div>
+          <label class="check"><input id="st-byregime" type="checkbox" checked> 同時依行情分層（單邊上漲／單邊下跌／震盪／過渡）</label>
+          <div class="grid2">
+            <div class="field"><label class="label" for="st-min">最低事件數</label><input id="st-min" type="number" min="5" max="1000" step="1" value="30"></div>
+          </div>
+          <div class="muted small">把條件目錄裡每一種價格行為（RSI 超賣、跌破布林下軌、K 線型態…）當成事件：訊號後下一根開盤進場、持有 N 根後開盤出場，<b>扣掉手續費、滑價（台股另加證交稅）</b>後檢定它是不是顯著賺錢；用訓練期篩選、樣本外確認。</div>
+        </div>
+        <button id="btn-scan" class="btn primary block" type="button">🔬 開始掃描價格行為</button>
+      </div>
       <div id="run-error" class="note bad" role="alert" hidden></div>
     </section>
   </aside>
@@ -328,6 +353,7 @@
       <div id="r-title" class="card result-head"></div>
       <div id="r-actions" class="card act-bar" data-testid="actions" hidden></div>
       <div id="r-wf" class="card" hidden data-testid="wf"></div>
+      <div id="r-study" class="card" hidden data-testid="study"></div>
       <div id="r-champions" class="champions" hidden></div>
       <div id="r-verdict" class="card"></div>
       <div id="r-compare" class="card"></div>
@@ -341,6 +367,7 @@
           <button type="button" class="tab" role="tab" data-ctab="monthly" aria-selected="false">每月報酬</button>
           <button type="button" class="tab" role="tab" data-ctab="sens" aria-selected="false" id="tab-sens">參數敏感度</button>
           <button type="button" class="tab" role="tab" data-ctab="robust" aria-selected="false" id="tab-robust">可信度檢定</button>
+          <button type="button" class="tab" role="tab" data-ctab="regime" aria-selected="false" id="tab-regime">行情分析</button>
           <button type="button" class="tab" role="tab" data-ctab="trades" aria-selected="false">逐筆交易</button>
           <button type="button" class="tab" role="tab" data-ctab="board" aria-selected="false" id="tab-board" hidden>候選排行榜</button>
         </div>
@@ -360,6 +387,7 @@
         <div id="ctab-monthly" class="ctab" hidden><div id="monthly"></div></div>
         <div id="ctab-sens" class="ctab" hidden><div id="sens"></div></div>
         <div id="ctab-robust" class="ctab" hidden><div id="robust" data-testid="robust"></div></div>
+        <div id="ctab-regime" class="ctab" hidden><div id="regime-tab" data-testid="regime-tab"></div></div>
         <div id="ctab-trades" class="ctab" hidden><div id="trades"></div></div>
         <div id="ctab-board" class="ctab" hidden><div id="board"></div></div>
       </div>

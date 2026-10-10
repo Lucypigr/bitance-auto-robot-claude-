@@ -2,12 +2,14 @@
 import { term, esc } from './info.js';
 import { fmtPct, fmtNum, fmtMoney, fmtPrice, fmtDate, fmtDateUTC, fmtStamp, signClass } from './format.js';
 import { candleChart, lineChart, chartTime, cssVar } from './charts.js';
-import { timeAt, currencyOf, symLabel } from '../core/util.js';
+import { timeAt, currencyOf, symLabel, TF_LABEL } from '../core/util.js';
 import * as I from '../core/indicators.js';
 import { CONDITIONS, describeSpec, specKey } from '../core/conditions.js';
 import { risingEdges } from '../core/signals.js';
 import { symbolBreakdown } from '../core/breakdown.js';
 import { robustVerdict, priceRet } from '../core/robust.js';
+import { REGIME_LABEL, REGIME_KEYS } from '../core/regime.js';
+import { clusterRows } from '../core/edgescan.js';
 
 const REASON = { tp: '停利', sl: '停損', trail: '移動停損', be: '保本出場', reverse: '反手', liq: '清算', signal: '出場訊號', time: '持倉期滿', end: '區間結束' };
 const legsText = (t) => {
@@ -549,4 +551,83 @@ export function renderRobust(el, r, { searched = false, seed = 0, trades = [] } 
     <div class="tbl-wrap"><table class="tbl"><thead><tr><th class="txt"></th><th>最大浮虧（中位數）</th><th>最大浮虧（90 百分位）</th><th>最大浮盈（中位數）</th></tr></thead><tbody>${exRow('賺錢的交易', ex.win)}${exRow('虧錢的交易', ex.lose)}</tbody></table></div>
     <div class="muted small" style="margin:6px 0">${ex.n >= 10 ? `輸家中有 ${fmtPct(ex.loseWithProfit, 0)} 曾經浮盈超過 0.5%；${ex.capture === null ? '' : `贏家平均只抓到最大浮盈的 ${fmtPct(ex.capture, 0)}。`}` : '交易太少，無法歸納。'}數字是價格變動（不含槓桿與成本）。</div>
     ${scatterSvg(trades)}<div class="muted small">每個點是一筆交易：橫軸＝途中最大浮虧、縱軸＝最終價格報酬。點若集中在左下（小浮虧就認賠）代表停損夠緊；右上角很多點（浮虧很深最後還是賺）代表停損可能太緊，把賺錢的單子洗掉了。</div>`;
+}
+
+// ---------------- 市場研究：行情狀態 ----------------
+const REG_CLS = { 1: 'pos', 2: 'neg', 3: 'muted', 4: 'muted', 0: 'muted' };
+const regBadge = (k) => `<span class="badge ${k === 1 ? 'up' : k === 2 ? 'down' : 'neutral'}">${REGIME_LABEL[k]}</span>`;
+
+export function renderRegimeOverview(el, ov, params, ds) {
+  const trendTxt = `ER(${params.period}) ≥ ${params.trend}＝單邊（再依 ${params.period} 根來的漲跌分成上漲／下跌）；ER ≤ ${params.range}＝震盪；之間＝過渡`;
+  const rows = ov.map((o) => `<tr><td>${esc(symLabel(ds, o.symbol))}</td><td>${regBadge(o.current)}</td><td>${Number.isFinite(o.er) ? fmtNum(o.er, 2) : '—'}</td>${REGIME_KEYS.map((k) => `<td>${fmtPct(o.share[k], 0)}</td>`).join('')}</tr>`).join('');
+  const now = ov.map((o) => `${symLabel(ds, o.symbol)}：${REGIME_LABEL[o.current]}`).join('；');
+  el.innerHTML = `<h2>${term('regime', '行情狀態')}分析</h2>
+    <div class="muted small">${esc(trendTxt)}。分類只用已收盤的 K 線，沒有偷看未來。</div>
+    <div class="note info" data-testid="regime-now"><b>目前（最新一根已收盤 K 線）：</b>${esc(now)}</div>
+    <div class="tbl-wrap"><table class="tbl" data-testid="regime-table"><thead><tr><th class="txt">標的</th><th>目前行情</th><th>目前 ER</th>${REGIME_KEYS.map((k) => `<th>${REGIME_LABEL[k]}占比</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table></div>
+    <div class="muted small">占比是這段載入資料中各種行情所佔的時間比例。常見的說法是「震盪盤適合均值回歸（超買超賣反轉）、單邊盤適合順勢（突破、均線）」，但<b>這只是說法</b>——用右側「價格行為掃描」才能用資料檢驗它在你的標的上是否成立。</div>`;
+}
+
+/** 回測結果頁的「行情分析」：這個策略的交易在哪種行情賺、哪種行情賠 */
+export function renderRegimeTab(el, groupsTrain, groupsOos, overview, params, ds) {
+  const find = (g, k) => g.find((x) => x.regime === k);
+  const cell = (g) => (g ? `<td>${g.n}</td><td>${fmtPct(g.winRate, 0)}</td><td class="${signClass(g.pnl)}">${fmtMoney(g.pnl, 0, true)}</td>` : '<td>0</td><td>—</td><td>—</td>');
+  const share = REGIME_KEYS.map((k) => { const v = overview.reduce((a, o) => a + o.share[k], 0) / Math.max(1, overview.length); return [k, v]; });
+  const body = REGIME_KEYS.map((k) => `<tr><th class="txt">${regBadge(k)}</th><td>${fmtPct(share.find((x) => x[0] === k)[1], 0)}</td>${cell(find(groupsTrain, k))}${cell(find(groupsOos, k))}</tr>`).join('');
+  const worst = REGIME_KEYS.map((k) => ({ k, tr: find(groupsTrain, k), oo: find(groupsOos, k) })).filter((x) => x.tr && x.tr.n >= 5);
+  let tip = '';
+  if (worst.length) {
+    const bad = worst.slice().sort((a, b) => a.tr.pnl - b.tr.pnl)[0];
+    const good = worst.slice().sort((a, b) => b.tr.pnl - a.tr.pnl)[0];
+    if (bad.tr.pnl < 0 && good.tr.pnl > 0 && bad.k !== good.k) {
+      const ooBad = bad.oo ? `；樣本外同一種行情 ${bad.oo.n} 筆、損益 ${fmtMoney(bad.oo.pnl, 0, true)}` : '';
+      tip = `<div class="note info">訓練期的交易在「${REGIME_LABEL[good.k]}」賺最多（${fmtMoney(good.tr.pnl, 0, true)}）、在「${REGIME_LABEL[bad.k]}」賠最多（${fmtMoney(bad.tr.pnl, 0, true)}${ooBad}）。如果樣本外也一致，可以在手動策略加上行情條件過濾，只在對的行情進場。<b>注意：</b>依訓練期結果挑行情過濾，本身也會增加過度擬合，請用樣本外確認。</div>`;
+    }
+  }
+  el.innerHTML = `<div class="note info"><b>這一頁回答：</b>這個策略的交易，是在哪一種行情（單邊上漲／單邊下跌／震盪／過渡）賺錢、哪一種賠錢？行情判斷用「訊號那根收盤」時的 ${term('efficiency_ratio', 'ER')}(${params.period})，單邊 ≥ ${params.trend}、震盪 ≤ ${params.range}（可在「市場研究」分頁調整）。</div>
+    ${tip}
+    <div class="tbl-wrap"><table class="tbl" data-testid="regime-trades"><thead><tr><th class="txt" rowspan="2">進場時的行情</th><th rowspan="2">時間占比</th><th colspan="3" class="col-train">訓練期</th><th colspan="3" class="col-oos">樣本外</th></tr><tr><th>筆數</th><th>勝率</th><th>淨損益</th><th>筆數</th><th>勝率</th><th>淨損益</th></tr></thead><tbody>${body}</tbody></table></div>
+    <div class="muted small">每種行情的筆數可能很少，單看一格很容易是巧合。時間占比是各標的的平均。「資料不足」（剛上市的暖機期）的交易未列出。</div>`;
+}
+
+// ---------------- 市場研究：價格行為掃描 ----------------
+export function renderScan(el, scan, ds, { filter = 'auto', trainPct = 70, params, limit = 40 } = {}) {
+  const s = scan.summary;
+  const hUnit = TF_LABEL[ds.baseTf] || ds.baseTf;
+  let level;
+  let head;
+  if (s.nConfirmed === 0) {
+    level = 'info';
+    head = s.nSelected === 0
+      ? `<b>沒有找到任何一種價格行為，在扣除成本後仍顯著賺錢。</b>這是很常見、而且誠實的結果：公開、簡單、人人都看得到的訊號，多半早就被成本與競爭吃掉。`
+      : `訓練期有 <b>${s.nSelected}</b> 組通過篩選，但<b>沒有任何一組</b>在樣本外得到確認——這正是「碰巧貼合過去」的典型樣子。`;
+  } else {
+    level = 'warn';
+    head = `有 <b>${s.nConfirmed}</b> 組價格行為「訓練期通過篩選、樣本外也確認」。<b>請當成待驗證的假說，不是保證</b>：同一批事件常被多個指標重複計算、各標的走勢高度相關、資金費率未計入，p 值偏樂觀。`;
+  }
+  const filt = filter === 'auto' ? (s.nConfirmed ? 'confirmed' : s.nSelected ? 'selected' : 'all') : filter;
+  let rows = scan.rows;
+  if (filt === 'confirmed') rows = rows.filter((r) => r.confirmed);
+  else if (filt === 'selected') rows = rows.filter((r) => r.selected);
+  const clustered = clusterRows(rows);
+  const shown = clustered.slice(0, limit);
+  const fmtP = (p) => (p < 0.001 ? '<0.001' : fmtNum(p, 3));
+  const verdict = (r) => (r.confirmed ? '<span class="badge up">✅ 樣本外確認</span>' : r.selected ? '<span class="badge neutral">🟡 樣本外未確認</span>' : '<span class="muted">—</span>');
+  const body = shown.map((r) => `<tr><td class="txt">${esc(r.label)}${r.same.length ? `<div class="muted small" title="${esc(r.same.join('、'))}">另有 ${r.same.length} 個條件是同一批事件</div>` : ''}</td>
+    <td>${r.dir > 0 ? '做多' : '做空'}</td><td>${r.h} 根</td><td>${r.regime === 'all' ? '全部' : REGIME_LABEL[r.regime]}</td>
+    <td>${r.train.n}</td><td class="${signClass(r.train.mean)}">${fmtPct(r.train.mean, 2, true)}</td><td class="${signClass(r.train.excess)}">${fmtPct(r.train.excess, 2, true)}</td><td>${fmtP(r.train.pUse)}</td><td>${fmtP(r.train.q)}</td>
+    <td>${r.oos.n}</td><td class="${signClass(r.oos.mean)}">${fmtPct(r.oos.mean, 2, true)}</td><td>${r.oos.q === undefined ? '—' : fmtP(r.oos.q)}</td>
+    <td>${verdict(r)}</td><td><button type="button" class="btn small" data-scan-build="${esc(r.key)}" title="把這個行為填進手動策略，之後可以用完整回測（含停損、槓桿、資金費率）再驗證">建立策略</button></td></tr>`).join('');
+  const base = scan.baselines.map((b) => `<tr><td>${b.dir > 0 ? '做多' : '做空'}</td><td>${b.h} 根</td><td class="${signClass(b.train.mean)}">${fmtPct(b.train.mean, 3, true)}</td><td class="${signClass(b.oos.mean)}">${fmtPct(b.oos.mean, 3, true)}</td></tr>`).join('');
+  const radio = (v, label) => `<label class="check"><input type="radio" name="scan-filter" value="${v}" ${filt === v ? 'checked' : ''}> ${label}</label>`;
+  el.innerHTML = `<h2>${term('edge_scan', '價格行為掃描')}結果</h2>
+    <div class="note ${level}" data-testid="scan-summary">${head}</div>
+    <div class="muted small" style="margin:6px 0">共測 <b>${s.nTested}</b> 組（${s.nConditions} 種行為 × 方向 × 持有期 ${s.horizons.join('／')} 根（${esc(hUnit)}）${s.byRegime ? ' × 行情分層' : ''}）。就算全是亂數，p&lt;0.05 的也預期有約 <b>${s.expectedFalse05.toFixed(0)}</b> 組（實際 ${s.nP05} 組）。訓練期用 ${term('multiple_testing', 'FDR')}（Benjamini–Hochberg，q ≤ ${s.fdr}）篩選，樣本外只確認被選出的（訓練 ${trainPct}%）。</div>
+    <div class="chart-tools">${radio('confirmed', '只看樣本外確認')}${radio('selected', '訓練期通過篩選')}${radio('all', '全部（依 p 值）')}<button type="button" class="btn small" data-scan-csv>⬇ 全部結果 CSV</button></div>
+    <div class="tbl-wrap"><table class="tbl" data-testid="scan-table"><thead><tr><th class="txt" rowspan="2">價格行為</th><th rowspan="2">方向</th><th rowspan="2">持有</th><th rowspan="2">行情</th><th colspan="5" class="col-train">訓練期（單位：每筆淨報酬）</th><th colspan="3" class="col-oos">樣本外</th><th rowspan="2">判定</th><th rowspan="2"></th></tr>
+      <tr><th>事件數</th><th>平均淨報酬</th><th>超額報酬</th><th>p 值</th><th>q 值</th><th>事件數</th><th>平均淨報酬</th><th>q 值</th></tr></thead><tbody>${body || '<tr><td colspan="14" class="muted">沒有符合的列（換成「全部」可看到全部結果）</td></tr>'}</tbody></table></div>
+    <div class="muted small">只顯示前 ${limit} 組${clustered.length > limit ? `（共 ${clustered.length} 組不重複）` : ''}。<b>平均淨報酬</b>＝扣掉手續費與滑價（台股另加證交稅）後，每筆事件的平均報酬；<b>超額報酬</b>＝再減掉「同一檔、同一段期間、同一種行情下任何時間進場」的平均報酬，用來扣除大盤漲跌；<b>p 值</b>取「平均淨報酬 &gt; 0」與「超額報酬 &gt; 0」兩者中較大的；事件互不重疊。單位是比例（不含槓桿）。</div>
+    <details class="adv"><summary>基準：任何時間進場的平均淨報酬（看成本拖累與大盤漂移）</summary><div class="tbl-wrap"><table class="tbl"><thead><tr><th>方向</th><th>持有</th><th>訓練期</th><th>樣本外</th></tr></thead><tbody>${base}</tbody></table></div>
+      <div class="muted small">通常是負的，大約等於來回成本；如果是正的，代表這段期間整體上漲（做多）或下跌（做空），單純做多／做空就會賺——這是「大盤」不是「優勢」。</div></details>
+    <div class="muted small" style="margin-top:6px">限制：不同標的同一時間的走勢高度相關，事件並非完全獨立；同一根 K 線上多個指標常同時觸發，並不是各自獨立的發現；資金費率、停損停利與槓桿未納入（按「建立策略」再用完整回測檢驗）；只測各條件的預設參數。${ds.market === 'perp' ? '' : '現貨／台股只測做多。'}</div>`;
 }
