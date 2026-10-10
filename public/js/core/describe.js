@@ -7,6 +7,8 @@ const num = (x) => (Number.isInteger(x) ? String(x) : String(+x.toFixed(2)));
 export function unitSuffix(st) {
   if (st.unit === 'usdt') return ` ${st.cur || 'USDT'}`;
   if (st.unit === 'atr') return '×ATR';
+  if (st.unit === 'capital') return '%本金';
+  if (st.unit === 'roe') return '%保證金報酬';
   return '%';
 }
 

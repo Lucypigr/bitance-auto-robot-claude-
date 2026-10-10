@@ -301,3 +301,84 @@ test('整合：新功能關閉時，結果與沿用舊欄位完全一致（回�
   assert.deepEqual(Array.from(a.equity), Array.from(b.equity));
   assert.equal(a.trades.length, b.trades.length);
 });
+
+// ---------------- 本金 % 與 ROE % 單位 ----------------
+test('本金 % 單位：停損時毛損剛好 = 進場前資金袋淨值 × 比例（價格距離由投入金額決定）', () => {
+  const bars = [...flat(100, 2), [100, 101, 90, 92], ...flat(92, 2)];
+  // 投入 50%（5000）、1 倍槓桿：名目 5000；停損 2% 本金 = 200 → 價格 4% → 96
+  const r = sim(bars, [0], { posPct: 0.5, slCap: 0.02 });
+  near(r.trades[0].exitPrice, 96, 1e-9);
+  assert.equal(r.trades[0].reason, 'sl');
+  near(r.trades[0].pnl, -200, 1e-6);
+  // 2 倍槓桿、全倉：名目 20000 → 價格 1% → 99；虧 200
+  const r2 = sim(bars, [0], { lev: 2, posPct: 1, slCap: 0.02 });
+  near(r2.trades[0].exitPrice, 99, 1e-9);
+  near(r2.trades[0].pnl, -200, 1e-6);
+  // 停利 3% 本金
+  const up = [...flat(100, 2), [100, 106, 99.5, 105], ...flat(105, 2)];
+  const r3 = sim(up, [0], { posPct: 0.5, tpCap: 0.03 }); // 賺 300 / 名目 5000 = 6% → 106
+  assert.equal(r3.trades[0].reason, 'tp');
+  near(r3.trades[0].exitPrice, 106, 1e-9);
+  near(r3.trades[0].pnl, 300, 1e-6);
+});
+
+test('本金 %：資金袋滾動後，比例是相對「進場前淨值」（賺了之後虧損金額跟著變大）', () => {
+  // 第一筆停利賺 10%（資金 11000）；第二筆停損 2% 本金 = 220
+  const bars = [...flat(100, 2), [100, 111, 99.9, 110], ...flat(110, 3), [110, 110, 90, 95], ...flat(95, 2)];
+  const r = sim(bars, [0, 5], { posPct: 1, tpCap: 0.1, slCap: 0.02 });
+  assert.equal(r.trades.length, 2);
+  near(r.trades[0].pnl, 1000, 1e-6);
+  near(r.trades[1].equityBefore, 11000, 1e-6);
+  near(r.trades[1].pnl, -220, 1e-6);
+});
+
+test('ROE %：價格距離 = ROE ÷ 槓桿（和幣安介面一致），與投入金額無關', () => {
+  const cfg = strategyToCfg({ dir: 'long', unit: 'roe', sl: 20, tp: 40, lev: 5 }, { fee: 0, slippage: 0, mmr: 0.005 }, 'perp');
+  near(cfg.sl, 0.04); near(cfg.tp, 0.08);
+  const bars = [...flat(100, 2), [100, 101, 95, 96], ...flat(96, 2)];
+  const r = sim(bars, [0], { lev: 5, posPct: 0.4, sl: cfg.sl });
+  near(r.trades[0].exitPrice, 96, 1e-9);
+  near(r.trades[0].pnl, -(r.trades[0].margin * 0.2), 1e-6); // 虧保證金的 20%
+  const cap = strategyToCfg({ dir: 'long', unit: 'capital', sl: 2, tp: 4 }, { fee: 0, slippage: 0, mmr: 0.005 }, 'perp');
+  assert.equal(cap.sl, 0); near(cap.slCap, 0.02); near(cap.tpCap, 0.04);
+});
+
+test('驗證：本金 % 不能搭配分批出場／加碼／每筆風險；ROE 只限永續；單位要有停損或停利', () => {
+  const { ds } = mkDs(flat(100, 5));
+  const base = { dir: 'long', entry: [{ id: 'rsi_oversold', tf: '1h' }], lev: 1, unit: 'capital', sl: 2, tp: 4 };
+  assert.doesNotThrow(() => validateStrategy(ds, base));
+  assert.throws(() => validateStrategy(ds, { ...base, riskPct: 1 }), /每筆風險/);
+  assert.throws(() => validateStrategy(ds, { ...base, scaleOut: { at: 1, frac: 50 } }), /分批出場/);
+  assert.throws(() => validateStrategy(ds, { ...base, scaleIn: { mode: 'favor', step: 1, count: 1, size: 100 } }), /加碼/);
+  assert.throws(() => validateStrategy(ds, { ...base, sl: 0, tp: 0 }), /需要設定/);
+  assert.throws(() => validateStrategy(ds, { ...base, sl: 150 }), /100%/);
+  assert.throws(() => validateStrategy({ ...ds, market: 'spot' }, { ...base, unit: 'roe' }), /永續/);
+  assert.doesNotThrow(() => validateStrategy(ds, { ...base, unit: 'roe', sl: 20, tp: 40, lev: 5, riskPct: 1, scaleOut: { at: 10, frac: 50 } }));
+});
+
+test('整合：本金 % 與 ROE % 經 runStrategy 跑完，期末淨值 = 本金 + 全部交易損益；停損時的毛損符合設定', async () => {
+  const { makeMarket } = await import('../helpers/market.js');
+  const { splitRanges } = await import('../../public/js/core/dataset.js');
+  const { sig, ds } = makeMarket();
+  const r = splitRanges(ds).full;
+  const base = { dir: 'long', entry: [{ id: 'rsi_oversold', tf: '1h', params: { level: 45 } }], exit: [], entryMode: 'edge', lev: 1, sl: 2, tp: 4 };
+  for (const unit of ['capital', 'roe']) {
+    const res = runStrategy(sig, { ...base, unit, lev: unit === 'roe' ? 3 : 1 }, COSTS, r);
+    checkAccounting(res, COSTS.capital, unit);
+    assert.ok(res.trades.length > 5, unit);
+  }
+  // 手續費為 0、無滑價時：每一筆停損的損益 = −2% × 該筆進場前淨值
+  const nofee = { fee: 0, slippage: 0, mmr: 0.005, posPct: 0.5, capital: 10000 };
+  const res = runStrategy(sig, { ...base, unit: 'capital', tp: 0 }, nofee, r);
+  const stops = res.trades.filter((t) => t.reason === 'sl');
+  assert.ok(stops.length > 3);
+  // 開盤跳空越過停損價會以更差的開盤價成交（虧得比設定多），其餘毛損剛好等於設定；資金費率另外計入損益
+  let exact = 0;
+  for (const t of stops) {
+    const target = -0.02 * t.equityBefore;
+    // 毛損（不含資金費率與手續費）才是「本金 %」所指的金額
+    assert.ok(t.gross <= target + 1e-6 && t.gross >= target * 3, `${t.gross} vs ${target}`);
+    if (Math.abs(t.gross - target) < 1e-6 * t.equityBefore + 1e-6) exact++;
+  }
+  assert.ok(exact / stops.length >= 0.5, `精確等於設定的比例 ${exact}/${stops.length}`);
+});

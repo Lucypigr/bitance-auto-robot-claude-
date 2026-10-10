@@ -785,3 +785,54 @@ test('斐波那契：可在手動策略選「上升波段回檔到斐波那契�
   await expect(page.getByTestId('compare')).toBeVisible({ timeout: 60000 });
   await expect(page.getByTestId('strategy-desc')).toContainText('斐波那契');
 });
+
+test('停損停利以「本金 %」與「ROE %」設定：即時換算成價格幅度、回測說明與診斷、自動搜尋預設值', async ({ page }) => {
+  await page.goto('/index.html');
+  await page.locator('#tab-manual').click();
+  await page.selectOption('#m-template', 'oversold');
+  await page.locator('#m-entry .c-param[data-k="level"]').fill('45');
+  await page.selectOption('#m-unit', 'capital');
+  await page.fill('#m-sl', '2'); await page.fill('#m-tp', '4');
+  await page.locator('#feePct').evaluate((el) => { el.closest('details').open = true; });
+  await page.fill('#posPct', '50');
+  const note = page.locator('#m-unit-note');
+  await expect(note).toBeVisible();
+  await expect(note).toContainText('本金 % 單位');
+  await expect(note).toContainText('停損 2% 本金 ≈ 價格 4.00%');
+  await expect(note).toContainText('停利 4% 本金 ≈ 價格 8.00%');
+  await page.selectOption('#days', '90');
+  await page.locator('#btn-manual').click();
+  await expect(page.getByTestId('compare')).toBeVisible({ timeout: 60000 });
+  await expect(page.getByTestId('strategy-desc')).toContainText('停損 2%本金');
+  await expect(page.getByTestId('diag')).toContainText('≈ 價格');
+  // 不能和「每筆風險」一起用
+  await page.locator('#m-rules-adv summary').click();
+  await page.fill('#m-risk', '1');
+  await page.locator('#btn-manual').click();
+  await expect(page.locator('#run-error')).toContainText('每筆風險');
+  await page.fill('#m-risk', '0');
+  // ROE：槓桿 5 → 停損 ROE 20% ≈ 價格 4%
+  await page.selectOption('#m-unit', 'roe');
+  await page.locator('#m-lev').fill('5');
+  await page.fill('#m-sl', '20'); await page.fill('#m-tp', '40');
+  await expect(note).toContainText('停損 ROE 20% ≈ 價格 4.00%');
+  await page.locator('#btn-manual').click();
+  await expect(page.getByTestId('strategy-desc')).toContainText('保證金報酬', { timeout: 60000 });
+  // 現貨沒有 ROE
+  await page.locator('[data-market="spot"]').click();
+  await expect(page.locator('#m-unit option[value="roe"]')).toBeDisabled();
+  await expect(page.locator('#m-unit')).toHaveValue('pct');
+});
+
+test('自動搜尋：停損停利單位選「本金 %」，用預設比例搜尋，冠軍描述含 %本金', async ({ page }) => {
+  await page.goto('/index.html');
+  await page.locator('[data-preset="3"]').click();
+  await page.locator('#pane-search details.adv').first().locator('summary').click();
+  await page.selectOption('#s-unit', 'capital');
+  await expect(page.locator('#s-unit-note')).toContainText('本金 % 模式');
+  await expect(page.getByTestId('adv-note')).toContainText('本金 %');
+  await page.selectOption('#days', '90'); await page.selectOption('#s-budget', '30'); await page.fill('#s-min', '3');
+  await page.locator('#btn-search').click();
+  await expect(page.getByTestId('champ-netReturn')).toBeVisible({ timeout: 90000 });
+  await expect(page.locator('#r-champions')).toContainText('%本金');
+});

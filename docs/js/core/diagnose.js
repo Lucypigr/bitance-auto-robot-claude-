@@ -101,6 +101,20 @@ export function diagnoseStrategy(sig, strategy, ranges, res, { minTrades = 20, c
     const slPct = strategy.sl ? (strategy.sl / notional) * 100 : 0;
     const C = strategy.cur || 'USDT';
     if (tpPct) add(tpPct > 20 || tpPct < 0.2 ? 'warn' : 'info', `以 ${C} 設定：投入 ${strategy.posUsdt}、槓桿 ${L}× → 名目價值 ${notional} ${C}；停利 ${strategy.tp} ${C} 相當於價格要走 ${tpPct.toFixed(2)}%，停損 ${strategy.sl || 0} ${C} 相當於 ${slPct.toFixed(2)}%。${tpPct > 20 ? '停利要價格走很遠才會碰到，多半只會等到區間結束才平倉。' : tpPct < 0.2 ? '停利幅度小於來回交易成本，賺到的都被手續費吃掉。' : ''}`);
+  } else if (strategy.unit === 'capital' || strategy.unit === 'roe') {
+    // 換算成大約的「價格幅度」，才看得出離進場價多遠、是不是比成本還小
+    const posPct = costs && costs.posPct ? costs.posPct : 1;
+    const base = strategy.unit === 'capital'
+      ? (strategy.posUsdt > 0 && costs ? Math.min(1, strategy.posUsdt / ((costs.capital || 1) / nSym)) : posPct) * L // 名目價值 ÷ 資金袋淨值
+      : L;
+    const toPrice = (x) => (x > 0 && base > 0 ? x / base : 0);
+    const slPx = toPrice(strategy.sl); const tpPx = toPrice(strategy.tp);
+    const what = strategy.unit === 'capital' ? `「本金 %」（投入約 ${(base / L * 100).toFixed(0)}%、槓桿 ${L}×，名目價值約為資金袋的 ${base.toFixed(2)} 倍）` : `「保證金報酬率 ROE %」（槓桿 ${L}×）`;
+    add('info', `以${what}設定：${strategy.sl ? `停損 ${strategy.sl}% ≈ 價格 ${slPx.toFixed(2)}%` : ''}${strategy.sl && strategy.tp ? '、' : ''}${strategy.tp ? `停利 ${strategy.tp}% ≈ 價格 ${tpPx.toFixed(2)}%` : ''}。`);
+    if (slPx && slPx < 0.5) add('warn', `停損換算成價格只有約 ${slPx.toFixed(2)}%，很容易被正常的來回跳動打到。部位越大、槓桿越高，「本金 %」換算出來的價格距離就越小；可以把停損比例調大，或降低槓桿／投入比例。`);
+    if (slPx && slPx >= 100) add('warn', `停損換算成價格約 ${slPx.toFixed(0)}%，做多時價格不可能跌那麼多，等於沒有停損。`);
+    if (tpPx && cost && tpPx / 100 <= cost) add('warn', `停利換算成價格約 ${tpPx.toFixed(2)}%，小於等於來回手續費＋滑價（約 ${(cost * 100).toFixed(2)}%），就算停利成功也是賠錢。`);
+    if (!strategy.sl && !strategy.tp && !strategy.trail && !(strategy.exit && strategy.exit.length) && !strategy.maxBars) add('warn', '沒有設定任何停損、停利或出場條件：一旦進場就會持有到資料結束。');
   } else if (strategy.unit === 'atr') {
     // ATR 單位：換算成大約的價格 %，才看得出停損停利是不是比成本還小
     const pcts = [];

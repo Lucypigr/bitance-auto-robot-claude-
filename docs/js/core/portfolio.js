@@ -12,15 +12,20 @@ export function strategyToCfg(strategy, costs, market) {
   const perp = market === 'perp';
   const tw = market === 'tw';
   const atr = strategy.unit === 'atr'; // 停損／停利（及分批出場、加碼間距）以 ATR 倍數表示
-  const scale = atr ? 1 : 0.01;
+  const cap = strategy.unit === 'capital'; // 以「進場前資金袋淨值」的 % 表示（引擎依投入金額換算成價格幅度）
+  const roe = strategy.unit === 'roe'; // 以「保證金報酬率 ROE %」表示：價格幅度 = ROE ÷ 槓桿
+  const lev = perp ? strategy.lev || 1 : 1;
+  const scale = atr ? 1 : roe ? 0.01 / lev : 0.01;
   const so = strategy.scaleOut;
   const si = strategy.scaleIn;
   return {
     dir: strategy.dir === 'short' ? -1 : 1,
     lev: perp ? strategy.lev || 1 : 1,
     unitAtr: atr, atrPeriod: strategy.atrPeriod || 14,
-    sl: strategy.unit === 'usdt' ? 0 : (strategy.sl || 0) * scale,
-    tp: strategy.unit === 'usdt' ? 0 : (strategy.tp || 0) * scale,
+    sl: strategy.unit === 'usdt' || cap ? 0 : (strategy.sl || 0) * scale,
+    tp: strategy.unit === 'usdt' || cap ? 0 : (strategy.tp || 0) * scale,
+    slCap: cap ? (strategy.sl || 0) / 100 : 0,
+    tpCap: cap ? (strategy.tp || 0) / 100 : 0,
     so: so && so.frac > 0 ? { at: (so.at || 0) * scale, frac: so.frac / 100, be: !!so.be } : null,
     si: si && si.count > 0 ? { mode: si.mode === 'adverse' ? 'adverse' : 'favor', step: (si.step || 0) * scale, count: Math.floor(si.count), size: (si.size ?? 100) / 100 } : null,
     slUsdt: strategy.unit === 'usdt' ? strategy.sl || 0 : 0,
@@ -47,7 +52,15 @@ export function validateStrategy(ds, strategy) {
     const e = validateSpec(sp);
     if (e) throw new Error(e);
   }
-  if (strategy.unit && !['pct', 'usdt', 'atr'].includes(strategy.unit)) throw new Error('停損停利單位不正確');
+  if (strategy.unit && !['pct', 'usdt', 'atr', 'capital', 'roe'].includes(strategy.unit)) throw new Error('停損停利單位不正確');
+  if (strategy.unit === 'capital') {
+    if (strategy.riskPct > 0) throw new Error('「本金 %」單位已經直接以本金決定每筆虧損，不需要再設「每筆風險」，請把每筆風險改回 0');
+    if (strategy.scaleOut && strategy.scaleOut.frac > 0) throw new Error('分批出場不能和「本金 %」單位一起用，請改用價格 %、ROE % 或 ATR 倍數');
+    if (strategy.scaleIn && strategy.scaleIn.count > 0) throw new Error('加碼不能和「本金 %」單位一起用，請改用價格 %、ROE % 或 ATR 倍數');
+    if (!(strategy.sl > 0) && !(strategy.tp > 0)) throw new Error('「本金 %」單位需要設定停損或停利');
+    if (strategy.sl > 100 || strategy.tp > 1000) throw new Error('停損不能超過本金的 100%');
+  }
+  if (strategy.unit === 'roe' && ds.market !== 'perp') throw new Error('保證金報酬率（ROE）只適用於永續合約；現貨與台股沒有槓桿，請用價格 %');
   if (strategy.unit === 'atr') {
     const p = strategy.atrPeriod ?? 14;
     if (!(p >= 2 && p <= 200)) throw new Error('ATR 週期必須介於 2 ～ 200');

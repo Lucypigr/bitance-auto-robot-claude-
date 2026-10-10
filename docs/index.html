@@ -177,7 +177,7 @@
           <summary>進階：停損、停利、槓桿的搜尋範圍</summary>
           <div class="grid2">
             <div class="field"><label class="label" for="s-unit"><span data-term="usdt_exit">停損停利單位</span></label>
-              <select id="s-unit"><option value="pct" selected>價格 %</option><option value="usdt" data-cur="{C} 損益金額">USDT 損益金額</option><option value="atr">ATR 倍數（隨波動度）</option></select></div>
+              <select id="s-unit"><option value="pct" selected>價格 %</option><option value="usdt" data-cur="{C} 損益金額">USDT 損益金額</option><option value="atr">ATR 倍數（隨波動度）</option><option value="capital">本金 %</option><option value="roe">保證金報酬率 ROE %</option></select></div>
             <div class="field"><label class="label" for="s-usdt"><span data-cur="每筆投入（{C} 本金）">每筆投入（USDT 保證金）</span></label><input id="s-usdt" type="number" min="0" step="1" value="0"></div>
           </div>
           <div class="field"><div class="label"><span data-term="stoploss">停損</span>（勾選）</div><div class="checks" id="s-sl"></div>
@@ -264,8 +264,8 @@
           <div id="m-summary" class="note info"></div>
         </div>
         <div class="grid2">
-          <div class="field"><label class="label" for="m-unit"><span data-term="usdt_exit">停損停利單位</span></label>
-            <select id="m-unit"><option value="pct" selected>價格 %</option><option value="usdt" data-cur="{C} 損益金額">USDT 損益金額</option><option value="atr">ATR 倍數（隨波動度）</option></select></div>
+          <div class="field"><label class="label" for="m-unit"><span data-term="cap_unit">停損停利單位</span></label>
+            <select id="m-unit"><option value="pct" selected>價格 %</option><option value="usdt" data-cur="{C} 損益金額">USDT 損益金額</option><option value="atr">ATR 倍數（隨波動度）</option><option value="capital">本金 %（每筆最多虧／賺本金幾 %）</option><option value="roe">保證金報酬率 ROE %（幣安合約介面）</option></select></div>
           <div class="field" id="m-atr-field" hidden><label class="label" for="m-atr"><span data-term="atr_stop">ATR 週期</span></label><input id="m-atr" type="number" min="2" max="200" step="1" value="14"></div>
           <div class="field"><label class="label" for="m-usdt"><span data-cur="每筆投入（{C} 本金，0＝用資金比例）">每筆投入（USDT 保證金，0＝用資金比例）</span></label><input id="m-usdt" type="number" min="0" step="1" value="0"></div>
         </div>

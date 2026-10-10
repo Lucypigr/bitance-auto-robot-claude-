@@ -85,8 +85,9 @@ function runTrade(ctx, k, s, Wb, acct, hi, onBar) {
   let M = notional / L;
   const feeIn = Math.max(minFee, notional * rateIn);
   // 停損／停利可用價格 %、ATR 倍數或 USDT 損益金額（金額 ÷ 名目價值 = 價格變動幅度，不含手續費）
-  const slF = cfg.slUsdt > 0 ? cfg.slUsdt / notional : slF0;
-  const tpF = cfg.tpUsdt > 0 ? cfg.tpUsdt / notional : cfg.tp > 0 ? dist(cfg.tp) : 0;
+  // 「本金 %」單位：停損時毛損 = 進場前資金袋淨值 × 比例 → 換算成價格幅度（和 USDT 金額相同的換算）
+  const slF = cfg.slUsdt > 0 ? cfg.slUsdt / notional : cfg.slCap > 0 ? (cfg.slCap * Wb) / notional : slF0;
+  const tpF = cfg.tpUsdt > 0 ? cfg.tpUsdt / notional : cfg.tpCap > 0 ? (cfg.tpCap * Wb) / notional : cfg.tp > 0 ? dist(cfg.tp) : 0;
   const slP = slF > 0 ? entry * (1 - d * slF) : NaN;
   const tpP = tpF > 0 ? entry * (1 + d * tpF) : NaN;
   const so = cfg.so && cfg.so.frac > 0 && cfg.so.at > 0 ? cfg.so : null; // 分批出場
