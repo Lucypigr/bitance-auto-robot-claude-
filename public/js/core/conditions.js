@@ -367,13 +367,13 @@ const pctTxt = (x) => `${+(x * 100).toFixed(1)}%`;
 CONDITIONS.fib_pullback = {
   group: '斐波那契回撤', label: '上升波段回檔到斐波那契位', term: 'fibonacci', side: 'bull', kind: 'state', family: 'fib',
   params: { period: 5, level: 0.618, tol: 0.04, minPct: 3 }, fields: FIB_FIELDS,
-  text: (p) => `上升波段（轉折 ${p.period} 根確認）回檔到 ${pctTxt(p.level)}（±${pctTxt(p.tol)}）附近`,
+  text: (p) => `斐波那契回撤：上升波段（轉折 ${p.period} 根確認）回檔到 ${pctTxt(p.level)}（±${pctTxt(p.tol)}）附近`,
   eval: (b, p) => { const r = b.fib(p.period, p.minPct).up, o = new Uint8Array(r.length); for (let i = 0; i < r.length; i++) o[i] = Math.abs(r[i] - p.level) <= p.tol ? 1 : 0; return o; },
 };
 CONDITIONS.fib_bounce = {
   group: '斐波那契回撤', label: '下降波段反彈到斐波那契位', term: 'fibonacci', side: 'bear', kind: 'state', family: 'fib',
   params: { period: 5, level: 0.618, tol: 0.04, minPct: 3 }, fields: FIB_FIELDS,
-  text: (p) => `下降波段（轉折 ${p.period} 根確認）反彈到 ${pctTxt(p.level)}（±${pctTxt(p.tol)}）附近`,
+  text: (p) => `斐波那契回撤：下降波段（轉折 ${p.period} 根確認）反彈到 ${pctTxt(p.level)}（±${pctTxt(p.tol)}）附近`,
   eval: (b, p) => { const r = b.fib(p.period, p.minPct).down, o = new Uint8Array(r.length); for (let i = 0; i < r.length; i++) o[i] = Math.abs(r[i] - p.level) <= p.tol ? 1 : 0; return o; },
 };
 
