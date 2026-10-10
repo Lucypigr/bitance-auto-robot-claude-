@@ -931,7 +931,7 @@ function applyScanRow(key) {
   const row = state.study && state.study.scan && state.study.scan.rows.find((r) => r.key === key);
   if (!row) return;
   const p = state.study.params;
-  const entry = [{ id: row.id, tf: state.baseTf, params: {}, within: 1 }];
+  const entry = [{ id: row.id, tf: state.baseTf, params: { ...(row.params || {}) }, within: 1 }];
   const rid = { 1: 'regime_up', 2: 'regime_down', 3: 'regime_range' }[row.regime];
   let note = '';
   if (rid) entry.push({ id: rid, tf: state.baseTf, params: { period: p.period, level: rid === 'regime_range' ? p.range : p.trend }, within: 1 });

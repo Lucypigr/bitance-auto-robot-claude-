@@ -138,3 +138,15 @@ test('掃描結果 CSV：欄位數一致、行情顯示中文、通過／確認�
   assert.ok(rows.slice(1).some((x) => x[16] === '是'));
   assert.match(toCsv(rows), /訓練平均淨報酬/);
 });
+
+import { scanItems } from '../../public/js/core/edgescan.js';
+test('掃描項目：斐波那契回撤分 38.2%／50%／61.8% 三個比例各測一次，其他條件只測預設參數', () => {
+  const items = scanItems();
+  const fib = items.filter((x) => x.id === 'fib_pullback');
+  assert.equal(fib.length, 3);
+  assert.deepEqual(fib.map((x) => x.params.level), [0.382, 0.5, 0.618]);
+  assert.match(fib[2].label, /61\.8%/);
+  assert.equal(new Set(items.map((x) => x.key)).size, items.length);
+  assert.ok(items.some((x) => x.id === 'rsi_oversold' && Object.keys(x.params).length === 0));
+  assert.ok(!items.some((x) => x.id.startsWith('regime_')));
+});

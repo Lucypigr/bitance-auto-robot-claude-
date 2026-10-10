@@ -87,6 +87,19 @@ export function scanConditionIds() {
   return Object.keys(CONDITIONS).filter((id) => CONDITIONS[id].family !== 'regime');
 }
 
+/** 掃描項目：多數條件只測預設參數；斐波那契回撤另外分 38.2%／50%／61.8% 三個比例各測一次 */
+export const SCAN_FIB_LEVELS = [0.382, 0.5, 0.618];
+export function scanItems(ids = scanConditionIds()) {
+  const items = [];
+  for (const id of ids) {
+    const def = CONDITIONS[id];
+    if (def.family === 'fib') {
+      for (const level of SCAN_FIB_LEVELS) items.push({ id, params: { level }, key: `${id}@${level}`, label: `${def.label} ${+(level * 100).toFixed(1)}%` });
+    } else items.push({ id, params: {}, key: id, label: def.label });
+  }
+  return items;
+}
+
 /**
  * @param {SignalEngine} sig
  * @param {{fee:number, slippage:number, tax?:number, taxEtf?:number}} costs
@@ -96,7 +109,7 @@ export async function scanEdges(sig, costs, ranges, opts = {}, hooks = {}) {
   const o = { ...SCAN_DEFAULTS, ...opts };
   const ds = sig.ds;
   validateRegimeParams(o.regime);
-  const ids = o.ids || scanConditionIds();
+  const items = o.items || scanItems(o.ids || scanConditionIds());
   const dirs = ds.market === 'perp' ? [1, -1] : [1];
   const segs = { train: ranges.train, oos: ranges.holdout };
   const tags = o.byRegime ? ['all', ...REGIME_KEYS] : ['all'];
@@ -128,11 +141,12 @@ export async function scanEdges(sig, costs, ranges, opts = {}, hooks = {}) {
   }
 
   const accs = new Map(); // `${id}|${dir}|${h}|${seg}|${tag}` → acc
-  const total = ids.length;
+  const total = items.length;
   for (let ci = 0; ci < total; ci++) {
     if (hooks.cancelled && hooks.cancelled()) return { cancelled: true };
-    const id = ids[ci];
-    const spec = { id, tf: ds.baseTf, params: {}, within: 1 };
+    const item = items[ci];
+    const id = item.key;
+    const spec = { id: item.id, tf: ds.baseTf, params: item.params, within: 1 };
     for (let si = 0; si < ds.symbols.length; si++) {
       const S = ds.symbols[si];
       const c = { fee: costs.fee, slippage: costs.slippage, tax: taxOf(S) };
@@ -163,12 +177,13 @@ export async function scanEdges(sig, costs, ranges, opts = {}, hooks = {}) {
 
   // 彙整成列
   const rows = [];
-  for (const id of ids) {
+  for (const item of items) {
+    const id = item.key;
     for (const dir of dirs) for (const h of o.horizons) for (const tag of tags) {
       const tr = summarize(accs.get(`${id}|${k4(dir, h, 'train', tag)}`), base.get(k4(dir, h, 'train', tag)));
       if (tr.n < o.minEvents) continue;
       const oo = summarize(accs.get(`${id}|${k4(dir, h, 'oos', tag)}`), base.get(k4(dir, h, 'oos', tag)));
-      rows.push({ id, label: CONDITIONS[id].label, key: `${id}|${dir}|${h}|${tag}`, dir, h, regime: tag, train: tr, oos: oo });
+      rows.push({ id: item.id, params: item.params, label: item.label, key: `${id}|${dir}|${h}|${tag}`, dir, h, regime: tag, train: tr, oos: oo });
     }
   }
   // 訓練期：BH 控制偽發現率
@@ -191,7 +206,7 @@ export async function scanEdges(sig, costs, ranges, opts = {}, hooks = {}) {
     summary: {
       nTested, nSelected: sel.length, nConfirmed: sel.filter((r) => r.confirmed).length,
       expectedFalse05: nTested * 0.05, nP05: rows.filter((r) => r.train.pUse < 0.05).length, fdr: o.fdr,
-      nConditions: ids.length, horizons: o.horizons, byRegime: o.byRegime,
+      nConditions: items.length, horizons: o.horizons, byRegime: o.byRegime,
     },
     config: { ...o },
   };

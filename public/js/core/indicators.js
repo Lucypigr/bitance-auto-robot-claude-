@@ -369,6 +369,47 @@ export function efficiencyRatio(close, n = 20) {
   return out;
 }
 
+/**
+ * 斐波那契回撤位（用「已確認」的轉折點，沒有偷看未來）。
+ * 轉折高點／低點：某根的最高價（最低價）是左右各 n 根裡最極端的；要等「右邊 n 根都收盤」才確認，
+ * 所以第 p 根的轉折最早在第 p+n 根才知道。第 i 根的值只用到第 i 根以前已確認的轉折與第 i 根收盤價。
+ * 回傳：
+ *  up[i]   最近確認的轉折是「高點」（低→高的上升波段已完成）時，收盤價回檔了該波段的幾成：(高 − 收盤) ÷ (高 − 低)
+ *  down[i] 最近確認的轉折是「低點」（高→低的下降波段已完成）時，收盤價反彈了該波段的幾成：(收盤 − 低) ÷ (高 − 低)
+ * 波段幅度小於 minPct（%）的視為雜訊，不計。0＝回到波段終點、1＝回到波段起點、超過 1＝波段已被完全破壞。
+ */
+export function fibRatios(high, low, close, n = 5, minPct = 3) {
+  const len = close.length;
+  const up = NaNArray(len);
+  const down = NaNArray(len);
+  let hP = NaN; let hI = -1; let lP = NaN; let lI = -1;
+  for (let i = 0; i < len; i++) {
+    const p = i - n;
+    if (p >= n) {
+      let isH = true;
+      let isL = true;
+      for (let k = p - n; k <= p + n && (isH || isL); k++) {
+        if (k === p) continue;
+        const hk = high[k]; const lk = low[k];
+        if (Number.isNaN(hk) || Number.isNaN(lk)) { isH = false; isL = false; break; }
+        if (k < p ? hk >= high[p] : hk > high[p]) isH = false;
+        if (k < p ? lk <= low[p] : lk < low[p]) isL = false;
+      }
+      if (Number.isNaN(high[p]) || Number.isNaN(low[p])) { isH = false; isL = false; }
+      if (isH && !isL) { hP = high[p]; hI = p; }
+      else if (isL && !isH) { lP = low[p]; lI = p; }
+    }
+    if (hI >= 0 && lI >= 0 && !Number.isNaN(close[i])) {
+      const range = hP - lP;
+      if (range > 0 && (range / lP) * 100 >= minPct) {
+        if (hI > lI) up[i] = (hP - close[i]) / range;
+        else if (lI > hI) down[i] = (close[i] - lP) / range;
+      }
+    }
+  }
+  return { up, down };
+}
+
 export function atrPercent(high, low, close, n = 14) {
   const a = atr(high, low, close, n);
   const out = NaNArray(close.length);
