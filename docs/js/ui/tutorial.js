@@ -45,7 +45,7 @@ export const PAGES = [
         <tr><td>執行週期</td><td class="txt">1h 或 4h</td><td class="txt">週期越短交易越多、成本越吃重；5m 資料量大、下載慢。</td></tr>
         <tr><td>天數</td><td class="txt">180 以上</td><td class="txt">太短只涵蓋一種行情，結果不具代表性。</td></tr>
         <tr><td>槓桿</td><td class="txt">先 1×</td><td class="txt"><span data-term="leverage">槓桿</span>放大賺賠也放大清算風險，先看無槓桿的結果。</td></tr>
-        <tr><td>停損／停利</td><td class="txt">先用 % </td><td class="txt">想用金額（例如投入 6U、停利 2U、停損 3U）可切成「USDT 損益金額」並填每筆投入。</td></tr>
+        <tr><td>停損／停利</td><td class="txt">先用價格 %</td><td class="txt">想用金額（例如投入 6U、停利 2U、停損 3U）可切成「USDT 損益金額」；想用「最多虧本金幾 %」可切成「本金 %」，習慣幣安合約介面可用「ROE %」（畫面會即時換算成價格幅度）。</td></tr>
         <tr><td>訓練／樣本外</td><td class="txt">70／30，想更嚴格用 50／50</td><td class="txt">樣本外越長越能檢驗，但訓練資料變少。</td></tr>
       </tbody></table>
       <p class="tut-tip">💡 「進階」折疊裡的選項（資金池、風險比例、USDT 單位等）預設都關閉。若改過後發現怪怪的（例如零交易），畫面會提示並可一鍵恢復預設。</p>`,

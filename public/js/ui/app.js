@@ -221,6 +221,7 @@ function setMarket(m, silent) {
   document.querySelectorAll('[data-market]').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.market === m)));
   const perp = m === 'perp';
   const tw = m === 'tw';
+  for (const id of ['m-unit', 's-unit']) { const o = $(id).querySelector('option[value="roe"]'); o.disabled = !perp; if (!perp && $(id).value === 'roe') { $(id).value = 'pct'; $(id).dispatchEvent(new Event('change')); } }
   $('mmr-field').hidden = !perp; $('mark-field').hidden = !perp; $('s-lev-field').hidden = !perp;
   $('tw-fields').hidden = !tw;
   $('m-lev').disabled = !perp;
@@ -318,6 +319,8 @@ function advancedChanges() {
   const cur = CUR();
   if ($('s-unit').value === 'usdt') out.push(`停損停利單位＝${cur} 金額`);
   if ($('s-unit').value === 'atr') out.push('停損停利單位＝ATR 倍數');
+  if ($('s-unit').value === 'capital') out.push('停損停利單位＝本金 %');
+  if ($('s-unit').value === 'roe') out.push('停損停利單位＝保證金報酬率 ROE %');
   const pu = Number($('s-usdt').value) || 0;
   if (pu > 0) out.push(`每筆固定投入 ${pu} ${cur}`);
   if ($('s-sl-custom').value.trim()) out.push(`自訂停損「${$('s-sl-custom').value.trim()}」`);
@@ -372,7 +375,9 @@ function readSearchConfig() {
   const lev = readChecks('s-lev');
   if (unit === 'usdt' && !(posUsdt > 0)) throw new Error('USDT 模式需要填寫「每筆投入」金額');
   if (unit === 'atr') { if (!sl.length) sl.push(1, 1.5, 2, 3); if (!tp.length) tp.push(1.5, 2, 3, 4); }
-  if ((Number($('s-risk').value) || 0) > 0 && unit === 'usdt') throw new Error('每筆風險只能搭配「價格 %」的停損，請把停損停利單位改回價格 %');
+  if (unit === 'capital') { if (!sl.length) sl.push(1, 2, 3); if (!tp.length) tp.push(2, 4, 6); }
+  if (unit === 'roe') { if (!sl.length) sl.push(10, 20, 30); if (!tp.length) tp.push(20, 40, 60); }
+  if ((Number($('s-risk').value) || 0) > 0 && (unit === 'usdt' || unit === 'capital')) throw new Error('每筆風險不能搭配 USDT 金額或「本金 %」單位，請改用價格 %、ATR 倍數或 ROE %');
   const tfs = [...new Set([state.baseTf, ...readChecks('s-tf')])];
   if (!sl.length || !tp.length) throw new Error('停損與停利至少各選一個');
   const minTrades = Math.max(1, Number($('s-min').value) || 20);
@@ -402,14 +407,31 @@ function setDir(d) {
   renderManual();
 }
 const MANUAL_DEFAULTS = { dir: 'long', entry: [], entryB: [], exit: [], unit: 'pct', atrPeriod: 14, posUsdt: 0, sl: 0, tp: 0, trail: 0, lev: 1, maxBars: 0, entryMode: 'edge', capitalMode: 'sleeve', maxPos: 1, riskPct: 0, reverse: true, scaleOut: null, scaleIn: null };
+/** 「本金 %」「ROE %」單位的白話說明，並依目前的槓桿與投入換算成價格幅度 */
+function capitalUnitNote(u) {
+  const lev = state.market === 'perp' ? Number($('m-lev').value) || 1 : 1;
+  const sl = Number($('m-sl').value) || 0;
+  const tp = Number($('m-tp').value) || 0;
+  let conv = '';
+  if (u === 'capital') {
+    const usdt = Number($('m-usdt').value) || 0;
+    const sleeve = (Number($('capital').value) || 0) / Math.max(1, state.symbols.length);
+    const frac = usdt > 0 && sleeve > 0 ? Math.min(1, usdt / sleeve) : Math.min(1, Math.max(0.01, (Number($('posPct').value) || 100) / 100));
+    const k = frac * lev;
+    conv = `依目前設定（每筆投入約資金袋的 ${(frac * 100).toFixed(0)}%、槓桿 ${lev}×）：${sl ? `停損 ${sl}% 本金 ≈ 價格 ${(sl / k).toFixed(2)}%` : ''}${sl && tp ? '、' : ''}${tp ? `停利 ${tp}% 本金 ≈ 價格 ${(tp / k).toFixed(2)}%` : ''}。`;
+    return `本金 % 單位：每筆交易在停損時最多虧「進場前資金袋淨值」的 ${sl || 'X'}%、停利時賺 ${tp || 'Y'}%（資金袋＝各標的平分的本金，或共用資金池的一個名額；隨已累積的損益滾動）。價格要走多遠，由投入金額與槓桿決定——部位越大、槓桿越高，價格距離越小，太小會被正常跳動洗出場。${conv}分批出場、加碼與「每筆風險」不能搭配此單位。`;
+  }
+  conv = `依目前槓桿 ${lev}×：${sl ? `停損 ROE ${sl}% ≈ 價格 ${(sl / lev).toFixed(2)}%` : ''}${sl && tp ? '、' : ''}${tp ? `停利 ROE ${tp}% ≈ 價格 ${(tp / lev).toFixed(2)}%` : ''}。`;
+  return `保證金報酬率 ROE %：和幣安合約介面的「報酬率」一樣，以這筆的保證金為基準，價格距離 ＝ ROE ÷ 槓桿。${conv}槓桿越高，同樣的 ROE 對應的價格距離越小（10 倍槓桿下 ROE −50% 只是價格 −5%）。`;
+}
 function updateManualUnit() {
   const u = $('m-unit').value;
   $('m-atr-field').hidden = u !== 'atr';
-  const txt = u === 'atr' ? '×ATR' : u === 'usdt' ? CUR() : '%';
+  const txt = u === 'atr' ? '×ATR' : u === 'usdt' ? CUR() : u === 'capital' ? '% 本金' : u === 'roe' ? '% ROE' : '%';
   document.querySelectorAll('.m-unit-txt').forEach((e) => { e.textContent = txt; });
   const note = $('m-unit-note');
   note.hidden = u === 'pct';
-  note.textContent = u === 'atr'
+  note.textContent = u === 'capital' || u === 'roe' ? capitalUnitNote(u) : u === 'atr'
     ? 'ATR 單位：停損、停利、分批出場與加碼間距都以「進場當下（訊號那根已收盤）的 ATR」的倍數表示。例如停損 1.5＝ATR 的 1.5 倍；波動大時自動放寬、波動小時收緊。搭配「每筆風險」可讓每筆虧損金額大致固定。'
     : u === 'usdt' ? 'USDT 金額單位：請在下方填寫「每筆投入」；分批出場與加碼不能搭配此單位。' : '';
 }
@@ -452,7 +474,7 @@ function readManualStrategy(soft = false) {
   if (!soft) for (const sp of [...m.entry, ...(both ? m.entryB : []), ...m.exit]) { const e = validateSpec(sp); if (e) throw new Error(e); }
   if (!soft && !st.entry.length) throw new Error(both ? '請至少新增一個「做多」進場條件' : '請至少新增一個進場條件');
   if (!soft && both && !st.entryB.length) throw new Error('請至少新增一個「做空」進場條件');
-  if (!soft && st.riskPct > 0 && (!(st.sl > 0) || st.unit === 'usdt')) throw new Error('每筆風險需要設定「價格 %」或「ATR 倍數」的停損');
+  if (!soft && st.riskPct > 0 && (!(st.sl > 0) || st.unit === 'usdt' || st.unit === 'capital')) throw new Error('每筆風險需要設定「價格 %」「ATR 倍數」或「ROE %」的停損（USDT 與本金 % 單位不能搭配）');
   if (!soft && st.unit === 'usdt' && !(st.posUsdt > 0)) throw new Error('USDT 模式需要填寫「每筆投入」金額（例如 6）');
   return st;
 }
@@ -1041,7 +1063,10 @@ function bind() {
     const u = $('s-unit').value;
     document.querySelectorAll('input[name="s-sl"], input[name="s-tp"]').forEach((i) => { i.disabled = u !== 'pct'; });
     $('s-unit-note').hidden = u === 'pct';
-    $('s-unit-note').textContent = u === 'atr'
+    $('s-unit-note').textContent = u === 'capital'
+      ? '本金 % 模式：每筆最多虧／賺「進場前資金袋淨值」的幾 %。上方勾選會停用；在下方「自訂」欄填比例（例如停損 1, 2、停利 2, 4）；留空則使用預設（停損 1／2／3、停利 2／4／6）。價格距離由投入比例與槓桿決定，部位越大價格距離越小。'
+      : u === 'roe' ? '保證金報酬率 ROE % 模式：和幣安合約介面的報酬率一樣，價格距離＝ROE ÷ 槓桿。上方勾選會停用；在下方「自訂」欄填 ROE（例如停損 10, 20、停利 20, 40）；留空則使用預設（停損 10／20／30、停利 20／40／60）。'
+      : u === 'atr'
       ? 'ATR 模式：停損、停利以「進場當下 ATR 的倍數」搜尋。上方勾選會停用；在下方「自訂」欄填倍數（例如停損 1, 1.5, 2、停利 2, 3）；留空則使用預設（停損 1／1.5／2／3、停利 1.5／2／3／4）。'
       : 'USDT 模式：請在下方「自訂」欄填入金額（預設勾選會停用），並填寫每筆投入。例如投入 6、停利 2、停損 3。';
   });
@@ -1084,6 +1109,7 @@ function bind() {
   bindConditionList($('m-entryB'), () => state.manual.entryB, (l, o) => { state.manual.entryB = l; renderManual(!!(o && o.soft)); });
   bindConditionList($('m-exit'), () => state.manual.exit, (l, o) => { state.manual.exit = l; renderManual(!!(o && o.soft)); });
   for (const id of ['m-sl', 'm-tp', 'm-trail', 'm-maxbars', 'm-entrymode', 'm-unit', 'm-usdt', 'm-capmode', 'm-maxpos', 'm-risk', 'm-atr', 'm-reverse', 'm-so-on', 'm-so-at', 'm-so-frac', 'm-so-be', 'm-si-mode', 'm-si-step', 'm-si-count', 'm-si-size']) $(id).addEventListener('input', renderManual);
+  for (const id of ['posPct', 'capital']) $(id).addEventListener('input', () => { if ($('m-unit').value === 'capital') updateManualUnit(); });
   $('m-lev').addEventListener('input', (e) => { $('m-lev-out').textContent = `${e.target.value}×`; renderManual(); });
 
   // 結果區

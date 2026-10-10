@@ -420,7 +420,7 @@ export function renderSymbolBreakdown(el, res, capital, ds) {
 const heatColor = (r) => `color-mix(in srgb, var(${r >= 0 ? '--up' : '--down'}) ${Math.min(80, Math.round((Math.abs(r) / 0.3) * 80))}%, var(--panel-2))`;
 
 export function renderSensitivity(el, d, strategy, ds) {
-  const unit = strategy.unit === 'usdt' ? ` ${strategy.cur || 'USDT'}` : strategy.unit === 'atr' ? '×ATR' : '%';
+  const unit = strategy.unit === 'usdt' ? ` ${strategy.cur || 'USDT'}` : strategy.unit === 'atr' ? '×ATR' : strategy.unit === 'capital' ? '%本金' : strategy.unit === 'roe' ? '%ROE' : '%';
   const cls = { good: 'good', warn: 'warn', bad: 'bad', none: 'info' }[d.summary.level];
   const heat = (sel, title) => {
     const head = d.slAxis.length ? d.slAxis : [d.base.sl];
