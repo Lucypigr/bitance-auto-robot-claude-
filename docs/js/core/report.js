@@ -251,3 +251,12 @@ export function normalizedCurves(snaps) {
     return { id: s.id, name: s.name, points: s.curve.t.map((t, i) => ({ t, v: (s.curve.eq[i] / base) * 100 })), splitT: s.window.splitT };
   });
 }
+
+/** 價格行為掃描結果的 CSV 列 */
+export function scanRows(scan, regimeLabel) {
+  const rows = [['行為', '方向', '持有根數', '行情', '訓練筆數', '訓練平均淨報酬', '訓練超額報酬', '訓練勝率', '訓練p值', '訓練q值(FDR)', '樣本外筆數', '樣本外平均淨報酬', '樣本外超額報酬', '樣本外p值', '樣本外q值', '訓練期通過', '樣本外確認']];
+  for (const r of scan.rows) {
+    rows.push([r.label, r.dir > 0 ? '做多' : '做空', r.h, r.regime === 'all' ? '全部' : regimeLabel[r.regime], r.train.n, r.train.mean, r.train.excess, r.train.hit, r.train.pUse, r.train.q, r.oos.n, r.oos.mean, r.oos.excess, r.oos.pUse, r.oos.q ?? null, r.selected ? '是' : '否', r.confirmed ? '是' : r.selected ? '否' : '']);
+  }
+  return rows;
+}

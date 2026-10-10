@@ -349,6 +349,26 @@ export function prevAvg(src, n) {
   return out;
 }
 
+/**
+ * 效率比率（Kaufman Efficiency Ratio）：n 根內「淨位移 ÷ 路徑總長」，0～1。
+ * 1＝一路走直線（單邊行情）；接近 0＝來回震盪、原地打轉。第 i 根只用到 i 以前的資料。
+ */
+export function efficiencyRatio(close, n = 20) {
+  const out = NaNArray(close.length);
+  for (let i = n; i < close.length; i++) {
+    let path = 0;
+    let ok = true;
+    for (let k = i - n + 1; k <= i; k++) {
+      const d = Math.abs(close[k] - close[k - 1]);
+      if (Number.isNaN(d)) { ok = false; break; }
+      path += d;
+    }
+    if (!ok || Number.isNaN(close[i - n])) continue;
+    out[i] = path > 0 ? Math.abs(close[i] - close[i - n]) / path : 0;
+  }
+  return out;
+}
+
 export function atrPercent(high, low, close, n = 14) {
   const a = atr(high, low, close, n);
   const out = NaNArray(close.length);

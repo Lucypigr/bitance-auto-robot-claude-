@@ -35,6 +35,7 @@ export class IndicatorBundle {
   cci(n) { return this.memo(`cci${n}`, () => I.cci(this.s.h, this.s.l, this.s.c, n)); }
   mfi(n) { return this.memo(`mfi${n}`, () => I.mfi(this.s.h, this.s.l, this.s.c, this.s.v, n)); }
   don(n) { return this.memo(`don${n}`, () => I.donchian(this.s.h, this.s.l, n)); }
+  er(n) { return this.memo(`er${n}`, () => I.efficiencyRatio(this.s.c, n)); }
   volAvg(n) { return this.memo(`vavg${n}`, () => I.prevAvg(this.s.v, n)); }
   pattern(name) { return this.memo(`pat${name}`, () => PATTERNS[name](this.s.o, this.s.h, this.s.l, this.s.c)); }
 }
@@ -351,6 +352,34 @@ export const CONDITIONS = {
       return o;
     },
   },
+};
+
+// ---- 行情狀態：單邊／震盪（效率比率 ER）----
+// 預設門檻依幣安 BTC／ETH／SOL 的 1h／4h／1d 實際分布挑選：ER(20) 的中位數約 0.2、75 百分位約 0.35、25 百分位約 0.1。
+const ER_FIELDS = [PERIOD([10, 20, 40], 'ER 週期'), fld('level', 'ER 門檻', [0.1, 0.15, 0.2, 0.3, 0.35, 0.4, 0.5], { min: 0.01, max: 0.99, int: false, step: 0.01 })];
+CONDITIONS.regime_trend = {
+  group: '行情狀態（單邊／震盪）', label: '單邊行情（不分漲跌）', term: 'regime', side: 'neutral', kind: 'state', family: 'regime',
+  params: { period: 20, level: 0.35 }, fields: ER_FIELDS,
+  text: (p) => `效率比率 ER(${p.period}) ≥ ${p.level}（單邊行情）`,
+  eval: (b, p) => stateGE(b.er(p.period), p.level),
+};
+CONDITIONS.regime_up = {
+  group: '行情狀態（單邊／震盪）', label: '單邊上漲', term: 'regime', side: 'bull', kind: 'state', family: 'regime',
+  params: { period: 20, level: 0.35 }, fields: ER_FIELDS,
+  text: (p) => `ER(${p.period}) ≥ ${p.level} 且 ${p.period} 根來收盤價上升（單邊上漲）`,
+  eval: (b, p) => { const e = b.er(p.period), c = b.s.c, o = new Uint8Array(c.length); for (let i = p.period; i < c.length; i++) o[i] = e[i] >= p.level && c[i] > c[i - p.period] ? 1 : 0; return o; },
+};
+CONDITIONS.regime_down = {
+  group: '行情狀態（單邊／震盪）', label: '單邊下跌', term: 'regime', side: 'bear', kind: 'state', family: 'regime',
+  params: { period: 20, level: 0.35 }, fields: ER_FIELDS,
+  text: (p) => `ER(${p.period}) ≥ ${p.level} 且 ${p.period} 根來收盤價下降（單邊下跌）`,
+  eval: (b, p) => { const e = b.er(p.period), c = b.s.c, o = new Uint8Array(c.length); for (let i = p.period; i < c.length; i++) o[i] = e[i] >= p.level && c[i] < c[i - p.period] ? 1 : 0; return o; },
+};
+CONDITIONS.regime_range = {
+  group: '行情狀態（單邊／震盪）', label: '震盪行情', term: 'regime', side: 'neutral', kind: 'state', family: 'regime',
+  params: { period: 20, level: 0.12 }, fields: ER_FIELDS,
+  text: (p) => `效率比率 ER(${p.period}) ≤ ${p.level}（來回震盪）`,
+  eval: (b, p) => stateLE(b.er(p.period), p.level),
 };
 
 // ---- K 線型態 ----
