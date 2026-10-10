@@ -12,7 +12,7 @@ import { TEMPLATES, defaultCondition, renderConditionList, bindConditionList, so
 import * as R from './results.js';
 import { diagnoseStrategy, diagnoseSearch } from '../core/diagnose.js';
 import { runRobustness, ROBUST_DEFAULTS } from '../core/robust.js';
-import { regimeOverview, tradesByRegime, validateRegimeParams, REGIME_DEFAULTS, REGIME_LABEL } from '../core/regime.js';
+import { regimeOverview, regimeMultiTf, tradesByRegime, validateRegimeParams, REGIME_DEFAULTS, REGIME_LABEL } from '../core/regime.js';
 import { scanEdges } from '../core/edgescan.js';
 import { fmtMoney, fmtPct } from './format.js';
 import { initTutorial } from './tutorial.js';
@@ -883,11 +883,13 @@ async function runRegimeStudy() {
   state.abort = new AbortController();
   setBusy(true, true);
   try {
-    const { ds } = await ensureData(new Set([state.baseTf]));
+    const tfs = TIMEFRAMES.filter((_, i) => i >= tfIndex(state.baseTf)).filter((tf) => !isTw() || tf === '1d');
+    const { ds } = await ensureData(new Set(tfs));
     const ov = regimeOverview(ds, params);
-    showStudyShell('行情分析', `${marketName()}　${ds.symbols.length} ${isTw() ? '檔' : '個幣種'}　執行週期 ${TF_LABEL[ds.baseTf]}`);
-    state.study = { params, ov };
-    R.renderRegimeOverview($('r-study'), ov, params, ds);
+    const multi = regimeMultiTf(ds, params, tfs);
+    showStudyShell('行情分析', `${marketName()}　${ds.symbols.length} ${isTw() ? '檔' : '個幣種'}　執行週期 ${TF_LABEL[ds.baseTf]}　並排 ${tfs.map((t) => TF_LABEL[t]).join('／')}`);
+    state.study = { params, ov, multi };
+    R.renderRegimeOverview($('r-study'), ov, params, ds, multi.length && multi[0].tfs.length > 1 ? multi : null);
     decorate($('r-study'));
     $('r-study').scrollIntoView({ behavior: 'smooth', block: 'start' });
   } catch (e) {
@@ -933,7 +935,7 @@ function renderStudyScan() {
   const el = $('r-study');
   R.renderScan(el, s.scan, ds, { filter: s.filter, trainPct: s.trainPct, params: s.params });
   el.insertAdjacentHTML('afterbegin', '<div id="scan-regime"></div>');
-  R.renderRegimeOverview($('scan-regime'), s.ov, s.params, ds);
+  R.renderRegimeOverview($('scan-regime'), s.ov, s.params, ds, null);
   $('scan-regime').insertAdjacentHTML('beforeend', '<hr style="border:0;border-top:1px solid var(--border);margin:14px 0">');
   decorate(el);
 }

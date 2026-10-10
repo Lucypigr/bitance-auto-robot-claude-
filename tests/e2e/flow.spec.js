@@ -736,6 +736,11 @@ test('市場研究：行情分析（目前行情與占比）、價格行為掃�
   await expect(box.getByTestId('regime-table')).toBeVisible({ timeout: 60000 });
   await expect(box.getByTestId('regime-now')).toContainText('目前');
   await expect(box.getByTestId('regime-table').locator('tbody tr')).toHaveCount(2);
+  // 多週期並排：執行週期 1h → 1 小時／4 小時／1 天，表頭標示「20 根 ≈ 多久」
+  await expect(box.getByTestId('regime-mtf')).toBeVisible();
+  await expect(box.getByTestId('regime-mtf')).toContainText('4 小時');
+  await expect(box.getByTestId('regime-mtf')).toContainText('20 根 ≈ 3.3 天');
+  await expect(box.getByTestId('regime-mtf').locator('tbody tr')).toHaveCount(2);
   // 門檻不合理 → 明確錯誤
   await page.fill('#st-range', '0.5');
   await page.locator('#btn-regime').click();
